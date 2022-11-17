@@ -942,9 +942,9 @@ struct
   
   let bot_of ik = bot () (*what is there to improve ?*)
 
-  let show x = failwith "Not implemented yet"
-    (*let show_interval i = "[" ^ (Ints_t.to_string (fst i)) ^ ", " ^ (Ints_t.to_string (snd j)) ^ "]" in
-    List.fold_left (fun acc i -> (show_interval )) [] x*)
+  let show (x: t) =
+    let show_interval i = Printf.sprintf "[%s, %s]" (Ints_t.to_string (fst i)) (Ints_t.to_string (snd i)) in
+    List.fold_left (fun acc i -> (show_interval i) :: acc) [] x |> String.concat ", " |> Printf.sprintf "[%s]"
 
   include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
