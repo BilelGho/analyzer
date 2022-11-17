@@ -1015,7 +1015,7 @@ struct
     let op = fun (al, au) (bl, bu) -> (al + bl, au + bu) in
       binary_op ik x y op
 
-  let sub ?no_ov _ik _x _y = failwith "Not implemented yet"
+  let sub ?no_ov ik x y = add ik x (neg y)
 
   let mul ?no_ov _ik _x _y = 
     let op = fun a b -> 
