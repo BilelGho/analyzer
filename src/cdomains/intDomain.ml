@@ -1011,7 +1011,9 @@ struct
 
   let logor _x = failwith "Not implemented yet"
 
-  let add ?no_ov _ik _x _y = failwith "Not implemented yet"
+  let add ?no_ov ik x y = 
+    let op = fun (al, au) (bl, bu) -> (al + bl, au + bu) in
+      binary_op ik x y op
 
   let sub ?no_ov _ik _x _y = failwith "Not implemented yet"
 
