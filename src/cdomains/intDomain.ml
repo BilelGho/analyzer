@@ -942,7 +942,7 @@ struct
    
   let bot () = []
   
-  let bot_of ik = bot () (*what is there to improve ?*)
+  let bot_of ik = bot () 
 
   let show (x: t) =
     let show_interval i = Printf.sprintf "[%s, %s]" (Ints_t.to_string (fst i)) (Ints_t.to_string (snd i)) in
