@@ -936,40 +936,109 @@ struct
   let top () = failwith @@ "top () not implemented for " ^ (name ())
   (*TODO why not use range*)
 
-  let top_of ik = failwith "Not implemented yet"
+  let top_of ik = [range ik]
    
   let bot () = failwith "Not implemented yet"
   
   let bot_of ik = bot () (*what is there to improve ?*)
 
   let show x = failwith "Not implemented yet"
-    (*let show_interval i = "[" ^ (Ints_t.to_string (fst i)) ^ ", " ^ (Ints_t.to_string (snd j)) ^ "]" in
-    List.fold_left (fun acc i -> (show_interval )) [] x*)
 
   include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
   let equal_to_interval i (a,b) = 
     if a = b && b = i then `Eq else if Ints_t.compare a i <= 0 && Ints_t.compare i b <=0 then `Top else `Neq
   
-  let equal_to i xs = match map (equal_to_interval i) xs with
+  let equal_to i xs = match List.map (equal_to_interval i) xs with
     | [] -> failwith "unsupported: equal_to with bottom"
     | [`Eq] ->  `Eq 
-    | ys -> if for_all (fun x -> x == `Neq) xs  then `Neq else `Top  
-    
-  let leq (x: t) (y: t) = match x, y with
-    | [], _ -> true
-    | _, [] -> false
-    | _::_, _::_ -> let includes = fun (al, au) (bl, bu) -> al <= bl && au >= bu in
-      List.for_all (List.exists includes y) x   
-
-  let join ik (x: t) (y: t): t = failwith "Not implemented yet"
-
-  let meet ik (x: t) (y: t): t = failwith "Not implemented yet"
-
-  let to_int _x = failwith "Not implemented yet"
-
-  let to_bool _x = failwith "Not implemented yet"
+    | ys -> if List.for_all (fun x -> x = `Neq) ys  then `Neq else `Top  
   
+  type 'a event = Enter of 'a | Exit of 'a 
+  let unbox = function Enter x -> x | Exit x -> x
+  let operand_to_events (xs:t) =  List.map (fun (a,b) -> [Enter a; Exit b]) xs |> List.flatten
+
+  let operands_to_events (xs:t) (ys:t) = (xs @ ys)  |> operand_to_events |> List.sort (fun x y -> let cmp = Ints_t.compare (unbox x) (unbox y))
+  
+  let combined_event_list (xs: int_t event list) l =
+    let aux (interval_count,acc) = function
+    | Enter x -> (interval_count+1, if interval_count+1<= l && interval_count< l then (Enter x)::acc else acc)
+    | Exit x -> (interval_count -1, if interval_count >= l && interval_count -1 <l then (Exit x)::acc else acc) in
+    List.fold_left aux (0,[]) xs |> snd |> List.rev
+  
+  let rec events_to_intervals = function
+  | [] -> []
+  | (Enter x)::(Exit y)::xs  -> (x,y)::events_to_intervals xs 
+  | _ -> failwith "Invalid events list"
+
+  let remove_gaps xs = 
+    List.fold_left (fun acc (l,r) -> match acc with
+     | (a,b)::acc' with b + 1 >= l -> (a,r)::acc
+     | _ -> (l,r)::acc
+    ) [] xs |> List.rev 
+
+
+    let set_overflow_flag ~cast ~underflow ~overflow ik =
+      let signed = Cil.isSigned ik in
+      if !GU.postsolving && signed && not cast then
+        Goblintutil.svcomp_may_overflow := true;
+  
+      let sign = if signed then "Signed" else "Unsigned" in
+      match underflow, overflow with
+      | true, true ->
+        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190; CWE 191] "%s integer overflow and underflow" sign
+      | true, false ->
+        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 191] "%s integer underflow" sign
+      | false, true ->
+        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190] "%s integer overflow" sign
+      | false, false -> assert false
+  
+    let norm ?(cast=false) ik = function None -> None | Some (x,y) ->
+      if Ints_t.compare x y > 0 then None
+      else (
+        let (min_ik, max_ik) = range ik in
+        let underflow = Ints_t.compare min_ik x > 0 in
+        let overflow = Ints_t.compare max_ik y < 0 in
+        if underflow || overflow then (
+          set_overflow_flag ~cast ~underflow ~overflow ik;
+          if should_wrap ik then (* could add [|| cast], but that's GCC implementation-defined behavior: https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html#Integers-implementation *)
+            (* We can only soundly wrap if at most one overflow occurred, otherwise the minimal and maximal values of the interval *)
+            (* on Z will not safely contain the minimal and maximal elements after the cast *)
+            let diff = Ints_t.abs (Ints_t.sub max_ik min_ik) in
+            let resdiff = Ints_t.abs (Ints_t.sub y x) in
+            if Ints_t.compare resdiff diff > 0 then
+              top_of ik
+            else
+              let l = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint x) in
+              let u = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint y) in
+              if Ints_t.compare l u <= 0 then
+                Some (l, u)
+              else
+                (* Interval that wraps around (begins to the right of its end). We can not represent such intervals *)
+                top_of ik
+          else if not cast && should_ignore_overflow ik then
+            let tl, tu = BatOption.get @@ top_of ik in
+            Some (Ints_t.max tl x, Ints_t.min tu y)
+          else
+            top_of ik
+        )
+        else Some (x,y)
+      ) 
+  let leq (x: t) (y: t) = failwith "Not implemented yet"
+  
+  let join ik (x: t) (y: t): t = combined_event_list x y 1 |> events_to_intervals |> remove_gaps
+
+  let meet ik (x: t) (y: t): t = combined_event_list x y 2 |> events_to_intervals |> remove_gaps
+
+  let to_int = function [(x,y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
+
+  let zero = [(Ints_t.zero, Ints_t.zero)]
+  let one =  [(Ints_t.one, Ints_t.one)]
+  let top_bool = [(Ints_t.zero, Ints_t.one)]
+  let to_bool = function  
+  | [(l,u)]  when Ints_t.compare l Ints_t.zero = 0 && Ints_t.compare u Ints_t.zero = 0 -> Some false
+  | x -> if leq zero x then None else Some true
+
   let rem _x = failwith "Not implemented yet"
   
   let lt _x = failwith "Not implemented yet"
@@ -1018,22 +1087,19 @@ struct
 
   let widen _x  = failwith "Not implemented yet"
 
-  let starting _ik x = failwith "Not implemented yet"
+  let starting ik n = match norm ik @@ Some (n, snd (range ik)) with Some (x,y) -> [(x,y)]
 
-  let ending _ik x = failwith "Not implemented yet"
+  let ending ik x = match norm ik @@ Some (fst (range ik), n) with Some (x,y) -> [(x,y)]
   
-  let of_int _ik _x = failwith "Not implemented yet"
+  let of_int ik x = of_interval ik (x,x)
 
-  let of_bool _ik _x = failwith "Not implemented yet"
+  let of_bool _ik = function true -> one | false -> zero
   
-  let of_interval _ik _x = failwith "Not implemented yet"
+  let of_interval ik (x,y) = match norm ik @@ Some (x,y) with Some (x',y') -> [(x',y')]
   
-  let of_congruence _ik _x = failwith "Not implemented yet"
-
   let is_top_of _ik _x = failwith "Not implemented yet"
 
   let invariant_ikind _ik = failwith "Not implemented yet"
-  
   
   let refine_with_congruence _x =  failwith "Not implemented yet"
 
