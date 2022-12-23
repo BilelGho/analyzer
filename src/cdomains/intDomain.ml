@@ -942,7 +942,7 @@ struct
    
   let bot () = []
   
-  let bot_of ik = bot () (*what is there to improve ?*)
+  let bot_of ik = bot () 
 
   let show (x: t) =
     let show_interval i = Printf.sprintf "[%s, %s]" (Ints_t.to_string (fst i)) (Ints_t.to_string (snd i)) in
@@ -973,29 +973,57 @@ struct
   
   type 'a event = Enter of 'a | Exit of 'a 
   let unbox = function Enter x -> x | Exit x -> x
-  let operand_to_events (xs:t) =  List.map (fun (a,b) -> [Enter a; Exit b]) xs |> List.flatten
+  let interval_set_to_events (xs:t) =  List.map (fun (a,b) -> [Enter a; Exit b]) xs |> List.flatten
 
-  let operands_to_events (xs:t) (ys:t) = (xs @ ys)  |> operand_to_events |> List.sort (fun x y -> Ints_t.compare (unbox x) (unbox y))
+  let sort_events  = List.sort (fun x y -> Ints_t.compare (unbox x) (unbox y))
   
-  let combined_event_list (xs: int_t event list) lattice_op =
+  let two_interval_sets_to_events (xs:t) (ys:t) = (xs @ ys)  |> interval_set_to_events |> sort_events
+    
+  (*Using the sweeping line algorithm, combined_event_list returns a new event list representing the intervals in which at least n intervals in xs overlap 
+    This function could be then used for both join and meet operations with different parameter n: 1 for join, 2 for meet *)   
+  let combined_event_list lattice_op (xs: int_t event list)  =
     let l = match lattice_op with `Join -> 1 | `Meet -> 2 in
-    let aux (interval_count,acc) = function
-    | Enter x -> (interval_count+1, if interval_count+1<= l && interval_count< l then (Enter x)::acc else acc)
-    | Exit x -> (interval_count -1, if interval_count >= l && interval_count -1 <l then (Exit x)::acc else acc) in
+      let aux (interval_count,acc) = function
+      | Enter x -> (interval_count+1, if interval_count+1>= l && interval_count< l then (Enter x)::acc else acc)
+      | Exit x -> (interval_count -1, if interval_count >= l && interval_count -1 <l then (Exit x)::acc else acc) in
     List.fold_left aux (0,[]) xs |> snd |> List.rev
-  
+    
   let rec events_to_intervals = function
   | [] -> []
   | (Enter x)::(Exit y)::xs  -> (x,y)::events_to_intervals xs 
   | _ -> failwith "Invalid events list"
-
+  
   let remove_gaps (xs:t) = 
     let f = fun acc (l,r) -> match acc with
     | ((a,b)::acc') when Ints_t.compare (Ints_t.add b (Ints_t.one)) l >= 0 -> (a,r)::acc
     | _ -> (l,r)::acc
-  in 
-    List.fold_left f [] xs |> List.rev 
+    in 
+      List.fold_left f [] xs |> List.rev 
+    
+  (* Helper Functions *)
+  let min_list l = List.fold_left min (List.hd l)
+  let max_list l = List.fold_left max (List.hd l)
+  let list_of_tuple2 (x, y) = [x ; y] 
 
+  let canonize (xs:t) = interval_set_to_events xs |> combined_event_list `Join |> events_to_intervals    
+  let cartesian_product l1 l2 = List.fold_left (fun acc1 e1 ->
+      List.fold_left (fun acc2 e2 -> (e1, e2)::acc2) acc1 l2) [] l1
+
+  let binary_op ik x y op = match x, y with
+    | [], _ -> []
+    | _, [] -> []
+    | _::_, _::_ -> canonize (List.map op (cartesian_product x y))
+
+  include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
+
+  let equal_to_interval i (a,b) = 
+    if a = b && b = i then `Eq else if Ints_t.compare a i <= 0 && Ints_t.compare i b <=0 then `Top else `Neq
+  
+  let equal_to i xs = match List.map (equal_to_interval i) xs with
+    | [] -> failwith "unsupported: equal_to with bottom"
+    | [`Eq] ->  `Eq 
+    | ys -> if List.for_all (fun x -> x = `Neq) ys  then `Neq else `Top  
+  
 
     let set_overflow_flag ~cast ~underflow ~overflow ik =
       let signed = Cil.isSigned ik in
@@ -1012,7 +1040,9 @@ struct
         M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190] "%s integer overflow" sign
       | false, false -> assert false
   
-    let norm ?(cast=false) ik = function None -> None | Some (x,y) ->
+    
+      (*TODO better precision for norm function*)
+      let norm ?(cast=false) ik = function None -> None | Some (x,y) ->
       if Ints_t.compare x y > 0 then None
       else (
         let (min_ik, max_ik) = range ik in
@@ -1049,9 +1079,9 @@ struct
     | _::_, _::_ -> let leq_interval = fun (al, au) (bl, bu) -> Ints_t.compare al bl >= 0 && Ints_t.compare au bu <= 0 in
       List.for_all (fun x -> List.exists (fun y -> leq_interval x y) ys) xs   
   
-  let join ik (x: t) (y: t): t = operands_to_events x y |> fun events -> combined_event_list events `Join |> events_to_intervals |> remove_gaps
+  let join ik (x: t) (y: t): t = two_interval_sets_to_events x y |> combined_event_list `Join |> events_to_intervals |> remove_gaps
 
-  let meet ik (x: t) (y: t): t = operands_to_events x y |> fun events -> combined_event_list events `Meet |> events_to_intervals |> remove_gaps
+  let meet ik (x: t) (y: t): t = two_interval_sets_to_events x y |> combined_event_list  `Meet |> events_to_intervals |> remove_gaps
 
   let to_int = function [(x,y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
 
@@ -1164,14 +1194,55 @@ struct
   let div ?no_ov ik x y = 
     binary_op ik x y (wrap_binary_interval_function Interval_functor.div ik)
 
-  let rem ik x y = 
+    let rem ik x y = 
       binary_op ik x y (wrap_binary_interval_function Interval_functor.rem ik)
 
-  let cast_to ?torg ?no_ov _x = failwith "Not implemented yet"
+  let cast_to ?torg ?no_ov ik = List.map (norm ~cast:true ik |> Option.get)
 
-  let narrow _x _y _z  = failwith "Not implemented yet"
+  let leq_interval x y =
+    match x, y with
+    | None, _ -> true
+    | Some _, None -> false
+    | Some (x1,x2), Some (y1,y2) -> Ints_t.compare x1 y1 >= 0 && Ints_t.compare x2 y2 <= 0
 
-  let widen _x  = failwith "Not implemented yet"
+  let join_interval ik x y =
+    match x, y with
+    | None, z | z, None -> z
+    | Some (x1,x2), Some (y1,y2) -> norm ik @@ Some (Ints_t.min x1 y1, Ints_t.max x2 y2)
+
+  let rec interval_sets_to_partitions (ik :ikind) (acc : (int_t*int_t) option ) (xs:t) (ys:t)= 
+      match xs,ys with 
+      | _, [] -> []
+      |[], (y::ys) -> (acc,y):: interval_sets_to_partitions ik None [] ys 
+      |(x::xs), (y::ys) when  leq_interval (Some x) (Some y) -> interval_sets_to_partitions ik (join_interval ik acc (Some x)) xs (y::ys)
+      |(x::xs), (y::ys) -> (acc,y) :: interval_sets_to_partitions ik None  (x::xs) ys
+  
+  let partitions_are_approaching  x y = match x,y with 
+   (Some (_,ar),(_,br)),(Some (al,_),(bl,_)) -> Ints_t.compare (Ints_t.sub al ar) (Ints_t.sub bl br) > 0  
+    | _,_ -> false
+
+  let merge_pair ik (a,b) (c,d) = (join_interval ik a c, (join_interval ik (Some b) (Some d) |> Option.get))
+  
+  let rec merge_list ik = function 
+    | [] -> []
+    | x::y::xs  when partitions_are_approaching x y -> merge_list ik ((merge_pair ik x y) :: xs)
+    | x::xs -> x :: merge_list ik xs
+
+  let narrow ik xs ys = xs (*TODO consider infinity case*)
+
+  let widen ik xs ys =  let (min_ik,max_ik) = range ik in interval_sets_to_partitions ik None xs ys |> merge_list ik |> (function
+    | [] -> []
+    | (None,(lb,rb))::ts -> (None, (min_ik,rb))::ts
+    | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare lb la < 0 -> (Some (la,ra),(min_ik,rb))::ts
+    | x  -> x)
+    |> List.rev
+    |> (function
+    | [] -> []
+    | (None,(lb,rb))::ts -> (None, (lb,max_ik))::ts
+    | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare ra rb < 0 -> (Some (la,ra),(lb,max_ik))::ts
+    | x  -> x)
+    |> List.rev
+    |> List.map snd  
 
   let starting ik n = match norm ik @@ Some (n, snd (range ik)) with Some (x,y) -> [(x,y)] 
 
@@ -1183,20 +1254,76 @@ struct
   
   let of_interval ik (x,y) = match norm ik @@ Some (x,y) with Some (x',y') -> [(x',y')]
   
-  let invariant_ikind _ik = failwith "Not implemented yet"
+  let invariant_ikind_interval e ik x =
+    match x with
+    |  (x1, x2) when Ints_t.compare x1 x2 = 0 ->
+      let x1 = Ints_t.to_bigint x1 in
+      Invariant.of_exp Cil.(BinOp (Eq, e, kintegerCilint ik x1, intType))
+    | (x1, x2) ->
+      let open Invariant in
+      let (min_ik, max_ik) = range ik in
+      let (x1', x2') = BatTuple.Tuple2.mapn (Ints_t.to_bigint) (x1, x2) in
+      let i1 = if Ints_t.compare min_ik x1 <> 0 then of_exp Cil.(BinOp (Le, kintegerCilint ik x1', e, intType)) else none in
+      let i2 = if Ints_t.compare x2 max_ik <> 0 then of_exp Cil.(BinOp (Le, e, kintegerCilint ik x2', intType)) else none in
+      i1 && i2
+
+  let invariant_ikind e ik xs = List.map (invariant_ikind_interval e ik) xs |> let open Invariant in List.fold_left (||) (bot ())
   
-  let refine_with_congruence _x =  failwith "Not implemented yet"
+  let modulo n k =
+    let result = Ints_t.rem n k in
+    if Ints_t.compare result Ints_t.zero >= 0 then result
+    else Ints_t.add result  k
 
-  let refine_with_interval _x = failwith "Not implemented yet"
+  let refine_with_congruence_interval ik (cong : (int_t * int_t ) option) (intv : (int_t * int_t ) option) =
+    match intv, cong with
+    | Some (x, y), Some (c, m) ->
+      if Ints_t.equal m Ints_t.zero && (Ints_t.compare c x < 0 || Ints_t.compare c y > 0) then None
+      else if Ints_t.equal m Ints_t.zero then
+        Some (c, c)
+      else
+        let (min_ik, max_ik) = range ik in
+        let rcx =
+          if Ints_t.equal x min_ik then x else
+            Ints_t.add x (modulo (Ints_t.sub c x) (Ints_t.abs m)) in
+        let lcy =
+          if Ints_t.equal y max_ik then y else
+            Ints_t.sub y (modulo (Ints_t.sub y c) (Ints_t.abs m)) in
+        if Ints_t.compare rcx lcy > 0 then None
+        else if Ints_t.equal rcx lcy then norm ik @@ Some (rcx, rcx)
+        else norm ik @@ Some (rcx, lcy)
+    | _ -> None
 
-  let refine_with_incl_list _x = failwith "Not implemented yet"
+  let refine_with_congruence ik (intvs :t) (cong : (int_t * int_t ) option) :t = 
+    List.map (fun x -> Some x) intvs |> List.map (refine_with_congruence_interval ik cong) |> List.map (Option.get)
 
-  let refine_with_excl_list _x = failwith "Not implemented yet"
+  let refine_with_interval ik xs = function None -> [] | Some (a,b) -> meet ik xs [(a,b)]
 
-  let project _ik _ip _x = failwith "Not implemented yet"
+  let refine_with_incl_list ik intvs  = function
+  | None -> []
+  | Some xs -> meet ik intvs (List.map (fun x -> (x,x)) xs)
+
+  let excl_to_intervalset (ik : ikind) ((rl,rh): (int64 * int64)) (excl : int_t): t = 
+    let intv1 = norm ik @@ Some (Ints_t.of_bigint (Size.min_from_bit_range rl), Ints_t.sub excl Ints_t.one) in
+    let intv2 = norm ik @@ Some (Ints_t.add excl Ints_t.one,  Ints_t.of_bigint (Size.max_from_bit_range rh)) in
+   [intv1; intv2] |> List.filter_map (fun x -> x)
+
+  let refine_with_excl_list ik (intv : t) = function
+  | None -> []
+  | Some (xs, range) -> let excl_list = List.map (excl_to_intervalset ik range) xs in 
+  List.fold_left (meet ik) intv excl_list
+
+  let project ik p t = t
+  let arbitrary ik =
+    let open QCheck.Iter in
+    (* let int_arb = QCheck.map ~rev:Ints_t.to_bigint Ints_t.of_bigint MyCheck.Arbitrary.big_int in *)
+    (* TODO: apparently bigints are really slow compared to int64 for domaintest *)
+    let int_arb = QCheck.map ~rev:Ints_t.to_int64 Ints_t.of_int64 MyCheck.Arbitrary.int64 in
+    let pair_arb = QCheck.pair int_arb int_arb in
+    let list_pair_arb = QCheck.small_list pair_arb in
+    let canonize_randomly_generated_list = fun x -> List.map (fun x -> Some x) x |> List.map (norm ik) |> List.filter_map (fun x -> x) |> canonize in
+    let shrink xs = MyCheck.shrink list_pair_arb xs >|= canonize_randomly_generated_list
+    in QCheck.(set_shrink shrink @@ set_print show @@ map (*~rev:BatOption.get*) canonize_randomly_generated_list list_pair_arb)
   
-  let arbitrary _ik = failwith "Not implemented yet"
-
 end
 
 module IntIkind = struct let ikind () = Cil.IInt end
