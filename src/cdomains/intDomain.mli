@@ -335,7 +335,7 @@ sig
 end
 (** The signature of integral value domains keeping track of ikind information *)
 
-module type Z = Y with type int_t = IntOps.BigIntOps.t
+module type Z = Y with type int_t = IntOps.BigIntOps.t 
 
 module IntDomLifter (I: S): Y with type int_t = I.int_t
 
@@ -347,18 +347,6 @@ end
 module PtrDiffIkind : Ikind
 
 module IntDomWithDefaultIkind (I: Y) (Ik: Ikind) : Y with type t = I.t and type int_t = I.int_t
-
-(* module ManyInts : S *)
-(* module IntDomList : S *)
-module IntDomTuple : sig
-  include Z
-  val no_interval: t -> t
-  val no_intervalSet: t -> t
-  val ikind: t -> ikind
-end
-
-val of_const: Z.t * Cil.ikind * string option -> IntDomTuple.t
-
 
 module Size : sig
   (** The biggest type we support for integers. *)
