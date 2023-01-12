@@ -5,7 +5,7 @@ open GoblintCil
 module GU = Goblintutil
 module ID =
 struct
-  module I = IntDomain.IntDomTuple
+  module I = IntDomTuple
   include Lattice.Lift (I) (Printable.DefaultNames)
 
   let lift op x = `Lifted (op x)

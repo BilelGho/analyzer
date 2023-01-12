@@ -36,7 +36,7 @@ let domains: (module Lattice.S) list = [
 
   (* TODO: fix *)
   (* (module IntDomain.Enums); *)
-  (* (module IntDomain.IntDomTuple); *)
+  (* (module IntDomTuple); *)
 
   (module ArbitraryLattice);
   (module HoareArbitrary);
@@ -55,7 +55,7 @@ let intDomains: (module IntDomainProperties.S) list = [
   (* (module IntDomain.Flattened); *)
   (* (module IntDomain.Interval32); *)
   (* (module IntDomain.Booleans); *)
-  (* (module IntDomain.IntDomTuple); *)
+  (* (module IntDomTuple); *)
 ]
 
 let nonAssocIntDomains: (module IntDomainProperties.S) list = [

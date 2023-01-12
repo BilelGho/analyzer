@@ -44,31 +44,31 @@ module type FloatArith = sig
 
 
   (** {b Comparison operators} *)
-  val lt : t -> t -> IntDomain.IntDomTuple.t
+  val lt : t -> t -> IntDomTuple.t
   (** Less than: [x < y] *)
-  val gt : t -> t -> IntDomain.IntDomTuple.t
+  val gt : t -> t -> IntDomTuple.t
   (** Greater than: [x > y] *)
-  val le : t -> t -> IntDomain.IntDomTuple.t
+  val le : t -> t -> IntDomTuple.t
   (** Less than or equal: [x <= y] *)
-  val ge : t -> t -> IntDomain.IntDomTuple.t
+  val ge : t -> t -> IntDomTuple.t
   (** Greater than or equal: [x >= y] *)
-  val eq : t -> t -> IntDomain.IntDomTuple.t
+  val eq : t -> t -> IntDomTuple.t
   (** Equal to: [x == y] *)
-  val ne : t -> t -> IntDomain.IntDomTuple.t
+  val ne : t -> t -> IntDomTuple.t
   (** Not equal to: [x != y] *)
   val unordered: t -> t -> IntDomain.IntDomTuple.t
   (** Unordered *)
 
   (** {unary functions returning int} *)
-  val isfinite : t -> IntDomain.IntDomTuple.t
+  val isfinite : t -> IntDomTuple.t
   (** __builtin_isfinite(x) *)
-  val isinf : t -> IntDomain.IntDomTuple.t
+  val isinf : t -> IntDomTuple.t
   (** __builtin_isinf(x) *)
-  val isnan : t -> IntDomain.IntDomTuple.t
+  val isnan : t -> IntDomTuple.t
   (** __builtin_isnan(x) *)
-  val isnormal : t -> IntDomain.IntDomTuple.t
+  val isnormal : t -> IntDomTuple.t
   (** __builtin_isnormal(x) *)
-  val signbit : t -> IntDomain.IntDomTuple.t
+  val signbit : t -> IntDomTuple.t
   (** __builtin_signbit(x) *)
 end
 
@@ -76,14 +76,14 @@ module type FloatDomainBase = sig
   include Lattice.S
   include FloatArith with type t := t
 
-  val to_int : Cil.ikind -> t -> IntDomain.IntDomTuple.t
+  val to_int : Cil.ikind -> t -> IntDomTuple.t
 
   val nan: unit -> t
 
   val of_const : float -> t
   val of_interval : float * float -> t
   val of_string : string -> t
-  val of_int: IntDomain.IntDomTuple.t -> t
+  val of_int: IntDomTuple.t -> t
 
   val ending : float -> t
   val starting : float -> t
@@ -104,13 +104,13 @@ module type FloatDomain = sig
   include Lattice.S
   include FloatArith with type t := t
 
-  val to_int : Cil.ikind -> t -> IntDomain.IntDomTuple.t
+  val to_int : Cil.ikind -> t -> IntDomTuple.t
   val cast_to : Cil.fkind -> t -> t
 
   val of_const : Cil.fkind -> float -> t
   val of_interval : Cil.fkind -> float*float -> t
   val of_string : Cil.fkind -> string -> t
-  val of_int: Cil.fkind -> IntDomain.IntDomTuple.t -> t
+  val of_int: Cil.fkind -> IntDomTuple.t -> t
 
   val top_of: Cil.fkind -> t
   val bot_of: Cil.fkind -> t

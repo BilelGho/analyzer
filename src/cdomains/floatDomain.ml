@@ -43,31 +43,31 @@ module type FloatArith = sig
 
 
   (** {b Comparison operators} *)
-  val lt : t -> t -> IntDomain.IntDomTuple.t
+  val lt : t -> t -> IntDomTuple.t
   (** Less than: [x < y] *)
-  val gt : t -> t -> IntDomain.IntDomTuple.t
+  val gt : t -> t -> IntDomTuple.t
   (** Greater than: [x > y] *)
-  val le : t -> t -> IntDomain.IntDomTuple.t
+  val le : t -> t -> IntDomTuple.t
   (** Less than or equal: [x <= y] *)
-  val ge : t -> t -> IntDomain.IntDomTuple.t
+  val ge : t -> t -> IntDomTuple.t
   (** Greater than or equal: [x >= y] *)
-  val eq : t -> t -> IntDomain.IntDomTuple.t
+  val eq : t -> t -> IntDomTuple.t
   (** Equal to: [x == y] *)
-  val ne : t -> t -> IntDomain.IntDomTuple.t
+  val ne : t -> t -> IntDomTuple.t
   (** Not equal to: [x != y] *)
   val unordered: t -> t -> IntDomain.IntDomTuple.t
   (** Unordered *)
 
   (** {unary functions returning int} *)
-  val isfinite : t -> IntDomain.IntDomTuple.t
+  val isfinite : t -> IntDomTuple.t
   (** __builtin_isfinite(x) *)
-  val isinf : t -> IntDomain.IntDomTuple.t
+  val isinf : t -> IntDomTuple.t
   (** __builtin_isinf(x) *)
-  val isnan : t -> IntDomain.IntDomTuple.t
+  val isnan : t -> IntDomTuple.t
   (** __builtin_isnan(x) *)
-  val isnormal : t -> IntDomain.IntDomTuple.t
+  val isnormal : t -> IntDomTuple.t
   (** __builtin_isnormal(x) *)
-  val signbit : t -> IntDomain.IntDomTuple.t
+  val signbit : t -> IntDomTuple.t
   (** __builtin_signbit(x) *)
 end
 
@@ -75,14 +75,14 @@ module type FloatDomainBase = sig
   include Lattice.S
   include FloatArith with type t := t
 
-  val to_int : Cil.ikind -> t -> IntDomain.IntDomTuple.t
+  val to_int : Cil.ikind -> t -> IntDomTuple.t
 
   val nan: unit -> t
 
   val of_const : float -> t
   val of_interval : float * float -> t
   val of_string : string -> t
-  val of_int: IntDomain.IntDomTuple.t -> t
+  val of_int: IntDomTuple.t -> t
 
   val ending : float -> t
   val starting : float -> t
@@ -122,18 +122,18 @@ module FloatIntervalImpl(Float_t : CFloatType) = struct
 
   let to_int ik = function
     | Bot -> raise (ArithmeticOnFloatBot (Printf.sprintf "to_int %s" (show Bot)))
-    | Top | NaN | MinusInfinity | PlusInfinity -> IntDomain.IntDomTuple.top_of ik
+    | Top | NaN | MinusInfinity | PlusInfinity -> IntDomTuple.top_of ik
     (* special treatment for booleans as those aren't "just" truncated *)
-    | Interval (l, h) when ik = IBool && (l > Float_t.zero || h < Float_t.zero) -> IntDomain.IntDomTuple.of_bool IBool true
-    | Interval (l, h) when ik = IBool && l = h && l = Float_t.zero -> IntDomain.IntDomTuple.of_bool IBool false
-    | Interval (l, h) when ik = IBool -> IntDomain.IntDomTuple.top_of IBool
+    | Interval (l, h) when ik = IBool && (l > Float_t.zero || h < Float_t.zero) -> IntDomTuple.of_bool IBool true
+    | Interval (l, h) when ik = IBool && l = h && l = Float_t.zero -> IntDomTuple.of_bool IBool false
+    | Interval (l, h) when ik = IBool -> IntDomTuple.top_of IBool
     | Interval (l, h) ->
       (* as converting from float to integer is (exactly) defined as leaving out the fractional part,
          (value is truncated toward zero) we do not require specific rounding here *)
-      IntDomain.IntDomTuple.of_interval ik (Float_t.to_big_int l, Float_t.to_big_int h)
+      IntDomTuple.of_interval ik (Float_t.to_big_int l, Float_t.to_big_int h)
 
   let of_int x =
-    match IntDomain.IntDomTuple.minimal x, IntDomain.IntDomTuple.maximal x with
+    match IntDomTuple.minimal x, IntDomTuple.maximal x with
     | Some l, Some h when l >= Float_t.to_big_int Float_t.lower_bound && h <= Float_t.to_big_int Float_t.upper_bound ->
       let l' = Float_t.of_float Down (Z.to_float l) in
       let h' = Float_t.of_float Up (Z.to_float h) in
@@ -352,7 +352,7 @@ module FloatIntervalImpl(Float_t : CFloatType) = struct
       | _, v2 when v2 = max -> (1,1) (* first argument cannot be max *)
       | _ -> (0, 1)
     in
-    IntDomain.IntDomTuple.of_interval IBool
+    IntDomTuple.of_interval IBool
       (Z.of_int a, Z.of_int b)
 
 
@@ -585,11 +585,11 @@ module FloatIntervalImpl(Float_t : CFloatType) = struct
       | Top, _ | _, Top -> (0,1) (*neither of the arguments is Top/Bot/NaN*)
       | _ -> (0, 0)
     in
-    IntDomain.IntDomTuple.of_interval IBool (Z.of_int a, Z.of_int b)
+    IntDomTuple.of_interval IBool (Z.of_int a, Z.of_int b)
 
-  let true_nonZero_IInt = IntDomain.IntDomTuple.of_excl_list IInt [Z.zero]
-  let false_zero_IInt = IntDomain.IntDomTuple.of_int IInt Z.zero
-  let unknown_IInt = IntDomain.IntDomTuple.top_of IInt
+  let true_nonZero_IInt = IntDomTuple.of_excl_list IInt [Z.zero]
+  let false_zero_IInt = IntDomTuple.of_int IInt Z.zero
+  let unknown_IInt = IntDomTuple.top_of IInt
 
   let eval_isnormal = function
     | (l, h) ->
@@ -743,13 +743,13 @@ module type FloatDomain = sig
   include Lattice.S
   include FloatArith with type t := t
 
-  val to_int : Cil.ikind -> t -> IntDomain.IntDomTuple.t
+  val to_int : Cil.ikind -> t -> IntDomTuple.t
   val cast_to : Cil.fkind -> t -> t
 
   val of_const : Cil.fkind -> float -> t
   val of_interval : Cil.fkind -> float*float -> t
   val of_string : Cil.fkind -> string -> t
-  val of_int: Cil.fkind -> IntDomain.IntDomTuple.t -> t
+  val of_int: Cil.fkind -> IntDomTuple.t -> t
 
   val top_of: Cil.fkind -> t
   val bot_of: Cil.fkind -> t
@@ -975,11 +975,11 @@ module FloatDomTupleImpl = struct
 
   let map2int r xa ya =
     Option.map_default identity
-      (IntDomain.IntDomTuple.top_of IBool) (opt_map2 (r.f2p (module F1)) xa ya)
+      (IntDomTuple.top_of IBool) (opt_map2 (r.f2p (module F1)) xa ya)
 
   let map1int r xa =
     Option.map_default identity
-      (IntDomain.IntDomTuple.top_of IInt) (BatOption.map (r.fp (module F1)) xa)
+      (IntDomTuple.top_of IInt) (BatOption.map (r.fp (module F1)) xa)
 
   let ( %% ) f g x = f % g x
 
@@ -1045,7 +1045,7 @@ module FloatDomTupleImpl = struct
   let of_int fkind =
     create { fi= (fun (type a) (module F : FloatDomain with type t = a) -> F.of_int fkind); }
 
-  let to_int ik = Option.map_default (F1.to_int ik) (IntDomain.IntDomTuple.top_of ik)
+  let to_int ik = Option.map_default (F1.to_int ik) (IntDomTuple.top_of ik)
 
   let cast_to fkind =
     map { f1= (fun (type a) (module F : FloatDomain with type t = a) -> (fun x -> F.cast_to fkind x)); }
