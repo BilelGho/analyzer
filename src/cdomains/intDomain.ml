@@ -948,23 +948,22 @@ struct
     let show_interval i = Printf.sprintf "[%s, %s]" (Ints_t.to_string (fst i)) (Ints_t.to_string (snd i)) in
     List.fold_left (fun acc i -> (show_interval i) :: acc) [] x |> List.rev |> String.concat ", " |> Printf.sprintf "[%s]"
   
-  let cartesian_product l1 l2 = List.fold_left (fun acc1 e1 -> List.fold_left (fun acc2 e2 -> (e1, e2)::acc2) acc1 l2) [] l1
+  let cartesian_product l1 l2 = 
+    List.fold_left (fun acc1 e1 -> List.fold_left (fun acc2 e2 -> (e1, e2)::acc2) acc1 l2) [] l1
 
+  (* New type definition for the sweeping line algorithm used for implementiong join/meet functions. *)
   type 'a event = Enter of 'a | Exit of 'a
+  
+  let unbox_event = function Enter x -> x | Exit x -> x
 
-  let unbox = function Enter x -> x | Exit x -> x
-
-  let show_event = function 
+  let _show_event = function 
     | Enter x -> Printf.sprintf "Enter %s" (Ints_t.to_string x) 
     | Exit x -> Printf.sprintf "Exit %s" (Ints_t.to_string x)
-
-  let interval_set_to_events (xs:t) =  List.map (fun (a,b) -> [Enter a; Exit b]) xs |> List.flatten
-
+    
   let sort_events =
     let cmp x y = 
-      let res = Ints_t.compare (unbox x) (unbox y) in
-      if res != 0 then
-        res
+      let res = Ints_t.compare (unbox_event x) (unbox_event y) in
+      if res != 0 then res
       else
         begin
           match (x, y) with
@@ -974,8 +973,11 @@ struct
         end
     in
     List.sort cmp
-  
-  let two_interval_sets_to_events (xs: t) (ys: t) = (xs @ ys) |> interval_set_to_events |> sort_events
+        
+  let interval_set_to_events (xs: t) = 
+    List.map (fun (a, b) -> [Enter a; Exit b]) xs |> List.flatten |> sort_events
+
+  let two_interval_sets_to_events (xs: t) (ys: t) = (xs @ ys) |> interval_set_to_events
     
   (* Using the sweeping line algorithm, combined_event_list returns a new event list representing the intervals in which at least n intervals in xs overlap 
     This function could be then used for both join and meet operations with different parameter n: 1 for join, 2 for meet *)   
@@ -999,105 +1001,88 @@ struct
     in 
     List.fold_left aux [] xs |> List.rev
     
-  (* Helper Functions *)
-  let min_list l = List.fold_left min (List.hd l)
-  let max_list l = List.fold_left max (List.hd l)
-  let list_of_tuple2 (x, y) = [x ; y] 
-
   let canonize (xs: t) = 
     interval_set_to_events xs |> 
     combined_event_list `Join |> 
-    events_to_intervals 
-
+    events_to_intervals
+    
   let unary_op (x: t) op = match x with 
     | [] -> []
-    | _ -> canonize (List.map op x)
+    | _ -> canonize (List.filter_map op x)
 
   let binary_op ik (x: t) (y: t) op : t = match x, y with
     | [], _ -> []
     | _, [] -> []
-    | _::_, _::_ -> canonize (List.map op (cartesian_product x y))
+    | _::_, _::_ -> canonize (List.filter_map op (cartesian_product x y))
 
   include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
-  let equal_to_interval i (a,b) = 
-    if a = b && b = i then `Eq else if Ints_t.compare a i <= 0 && Ints_t.compare i b <=0 then `Top else `Neq
+  let equal_to_interval i (a, b) = 
+    if a = b && b = i then 
+      `Eq 
+    else if Ints_t.compare a i <= 0 && Ints_t.compare i b <=0 then 
+      `Top 
+    else 
+      `Neq
   
   let equal_to i xs = match List.map (equal_to_interval i) xs with
     | [] -> failwith "unsupported: equal_to with bottom"
     | [`Eq] ->  `Eq 
     | ys -> if List.for_all (fun x -> x = `Neq) ys  then `Neq else `Top  
      
-  let cartesian_product l1 l2 = List.fold_left (fun acc1 e1 ->
-      List.fold_left (fun acc2 e2 -> (e1, e2)::acc2) acc1 l2) [] l1
-
-  let binary_op ik x y op = match x, y with
-    | [], _ -> []
-    | _, [] -> []
-    | _::_, _::_ -> canonize (List.map op (cartesian_product x y))
-
   include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
-  let equal_to_interval i (a,b) = 
-    if a = b && b = i then `Eq else if Ints_t.compare a i <= 0 && Ints_t.compare i b <=0 then `Top else `Neq
+  let set_overflow_flag ~cast ~underflow ~overflow ik =
+    let signed = Cil.isSigned ik in
+    if !GU.postsolving && signed && not cast then
+      Goblintutil.svcomp_may_overflow := true;
+    let sign = if signed then "Signed" else "Unsigned" in
+    match underflow, overflow with
+    | true, true ->
+      M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190; CWE 191] "%s integer overflow and underflow" sign
+    | true, false ->
+      M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 191] "%s integer underflow" sign
+    | false, true ->
+      M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190] "%s integer overflow" sign
+    | false, false -> assert false
   
-  let equal_to i xs = match List.map (equal_to_interval i) xs with
-    | [] -> failwith "unsupported: equal_to with bottom"
-    | [`Eq] ->  `Eq 
-    | ys -> if List.for_all (fun x -> x = `Neq) ys  then `Neq else `Top  
-  
-
-    let set_overflow_flag ~cast ~underflow ~overflow ik =
-      let signed = Cil.isSigned ik in
-      if !GU.postsolving && signed && not cast then
-        Goblintutil.svcomp_may_overflow := true;
-  
-      let sign = if signed then "Signed" else "Unsigned" in
-      match underflow, overflow with
-      | true, true ->
-        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190; CWE 191] "%s integer overflow and underflow" sign
-      | true, false ->
-        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 191] "%s integer underflow" sign
-      | false, true ->
-        M.warn ~category:M.Category.Integer.overflow ~tags:[CWE 190] "%s integer overflow" sign
-      | false, false -> assert false
-  
-    
-      (*TODO better precision for norm function*)
-    let norm ?(cast=false) ik = function 
-      | None -> None 
-      | Some (x,y) ->
-        if Ints_t.compare x y > 0 then 
-          None
-        else (
-          let (min_ik, max_ik) = range ik in
-          let underflow = Ints_t.compare min_ik x > 0 in
-          let overflow = Ints_t.compare max_ik y < 0 in
-          if underflow || overflow then (
-            set_overflow_flag ~cast ~underflow ~overflow ik;
-            if should_wrap ik then (* could add [|| cast], but that's GCC implementation-defined behavior: https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html#Integers-implementation *)
-              (* We can only soundly wrap if at most one overflow occurred, otherwise the minimal and maximal values of the interval *)
-              (* on Z will not safely contain the minimal and maximal elements after the cast *)
-              let diff = Ints_t.abs (Ints_t.sub max_ik min_ik) in
-              let resdiff = Ints_t.abs (Ints_t.sub y x) in
-              if Ints_t.compare resdiff diff > 0 then
-                Some (range ik)
-              else
-                let l = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint x) in
-                let u = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint y) in
-                if Ints_t.compare l u <= 0 then
-                  Some (l, u)
-                else
-                  (* Interval that wraps around (begins to the right of its end). We can not represent such intervals *)
-                  Some (range ik)
-            else if not cast && should_ignore_overflow ik then
-              let tl, tu = range ik in
-              Some (Ints_t.max tl x, Ints_t.min tu y)
+  let norm ?(cast=false) ik = function 
+  | None -> [] 
+  | Some (x,y) ->
+    if Ints_t.compare x y > 0 then 
+      []
+    else begin
+      let (min_ik, max_ik) = range ik in
+      let underflow = Ints_t.compare min_ik x > 0 in
+      let overflow = Ints_t.compare max_ik y < 0 in
+      if underflow || overflow then
+        begin
+          set_overflow_flag ~cast ~underflow ~overflow ik;
+          if should_wrap ik then (* could add [|| cast], but that's GCC implementation-defined behavior: https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html#Integers-implementation *)
+            (* We can only soundly wrap if at most one overflow occurred, otherwise the minimal and maximal values of the interval *)
+            (* on Z will not safely contain the minimal and maximal elements after the cast *)
+            let diff = Ints_t.abs (Ints_t.sub max_ik min_ik) in
+            let resdiff = Ints_t.abs (Ints_t.sub y x) in
+            if Ints_t.compare resdiff diff > 0 then
+              [range ik]
             else
-              Some (range ik)
-          )
-          else Some (x,y)
-        ) 
+              let l = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint x) in
+              let u = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint y) in
+              if Ints_t.compare l u <= 0 then
+                [(l, u)]
+              else
+                (* Interval that wraps around (begins to the right of its end). We CAN represent such intervals *)
+                [(min_ik, u); (l, max_ik)]
+          else if not cast && should_ignore_overflow ik then
+            let tl, tu = range ik in
+            [Ints_t.max tl x, Ints_t.min tu y]
+          else
+            [range ik]
+        end
+      else 
+        [(x,y)]
+    end
+
   let leq (xs: t) (ys: t) = match xs, ys with
     | [], _ -> true
     | _, [] -> false
@@ -1113,7 +1098,7 @@ struct
 
   let meet ik (x: t) (y: t): t = two_interval_sets_to_events x y |> combined_event_list  `Meet |> events_to_intervals |> remove_gaps
 
-  let to_int = function [(x,y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
+  let to_int = function [(x, y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
 
   let zero = [(Ints_t.zero, Ints_t.zero)]
   let one =  [(Ints_t.one, Ints_t.one)]
@@ -1130,21 +1115,17 @@ struct
 
   let is_false x = x == zero
 
-  let wrap_unary_interval_function f ik =
-    let wrap a = f ik (Some a) |> Option.get in
-    wrap
+  let wrap_unary_interval_function f ik a = f ik (Some a)
 
-  let wrap_binary_interval_function f ik =
-    let wrap (a, b) = f ik (Some a) (Some b) |> Option.get in
-    wrap
+  let wrap_binary_interval_function f ik (a, b) = f ik (Some a) (Some b)
 
   let get_lhs_rhs_boundaries (x: t) (y: t) = 
     let lhs = List.hd x in
-    let rhs = List.nth y ((List.length y) - 1) in 
+    let rhs = List.rev y |> List.hd in
     (fst lhs, snd rhs)
 
   let get_rhs_lhs_boundaries (x: t) (y: t) = 
-    let lhs = List.nth x ((List.length x) - 1) in 
+    let lhs = List.rev x |> List.hd in 
     let rhs = List.hd y in
     (snd lhs, fst rhs)
   
@@ -1177,7 +1158,7 @@ struct
     if is_true res then 
       zero 
     else
-      if is_false res then zero else top_bool
+      if is_false res then one else top_bool
 
   let ge ik x y = 
     let res = lt ik x y in
@@ -1187,7 +1168,8 @@ struct
       if is_false res then one else top_bool
   
   let eq ik x y = match x, y with
-    | (a, b)::[], (c, d)::[] when (Ints_t.compare a b) == 0 && (Ints_t.compare c d) == 0 && (Ints_t.compare a c) == 0 -> one
+    | (a, b)::[], (c, d)::[] when (Ints_t.compare a b) == 0 && (Ints_t.compare c d) == 0 && (Ints_t.compare a c) == 0 -> 
+      one
     | _ -> 
       if is_bot (meet ik x y) then 
         zero 
@@ -1202,31 +1184,31 @@ struct
       if is_false res then one else top_bool
 
   let bitand ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.bitand ik)
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.bitand ik)
 
   let bitor ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.bitor ik)
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.bitor ik)
 
   let bitnot ik x = 
     unary_op x (wrap_unary_interval_function Interval_functor.bitnot ik)
 
   let bitxor ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.bitxor ik)
+     binary_op ik x y (wrap_binary_interval_function Interval_functor.bitxor ik)
 
   let shift_left ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.shift_left ik)
+     binary_op ik x y (wrap_binary_interval_function Interval_functor.shift_left ik)
 
   let shift_right ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.shift_right ik)
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.shift_right ik)
 
   let lognot ik x = 
     unary_op x (wrap_unary_interval_function Interval_functor.lognot ik)
 
   let logand ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.logand ik)
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.logand ik)
 
   let logor ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.logor ik)
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.logor ik)
 
   let add ?no_ov ik x y = 
     binary_op ik x y (wrap_binary_interval_function Interval_functor.add ik)
@@ -1243,43 +1225,53 @@ struct
   let div ?no_ov ik x y = 
     binary_op ik x y (wrap_binary_interval_function Interval_functor.div ik)
 
-    let rem ik x y = 
-      binary_op ik x y (wrap_binary_interval_function Interval_functor.rem ik)
+  let rem ik x y = 
+    binary_op ik x y (wrap_binary_interval_function Interval_functor.rem ik)
 
-  let cast_to ?torg ?no_ov ik = List.map (fun x -> norm ~cast:true ik (Some x) |> Option.get)
+  let cast_to ?torg ?no_ov ik x = List.map (fun x -> norm ~cast:true ik (Some x)) x |> List.flatten
 
-  let leq_interval x y =
-    match x, y with
-    | None, _ -> true
-    | Some _, None -> false
-    | Some (x1,x2), Some (y1,y2) -> Ints_t.compare x1 y1 >= 0 && Ints_t.compare x2 y2 <= 0
+  let leq_interval x y = match x, y with
+  | None, _ -> true
+  | Some _, None -> false
+  | Some (x1,x2), Some (y1,y2) -> Ints_t.compare x1 y1 >= 0 && Ints_t.compare x2 y2 <= 0
 
-  let join_interval ik x y =
-    match x, y with
-    | None, z | z, None -> z
-    | Some (x1,x2), Some (y1,y2) -> norm ik @@ Some (Ints_t.min x1 y1, Ints_t.max x2 y2)
+  let join_interval ik x y = match x, y with
+  | None, z | z, None -> z
+  | Some (x1,x2), Some (y1,y2) -> Some (Ints_t.min x1 y1, Ints_t.max x2 y2)
 
-  let rec interval_sets_to_partitions (ik :ikind) (acc : (int_t*int_t) option ) (xs:t) (ys:t)= 
-      match xs,ys with 
-      | _, [] -> []
-      |[], (y::ys) -> (acc,y):: interval_sets_to_partitions ik None [] ys 
-      |(x::xs), (y::ys) when  leq_interval (Some x) (Some y) -> interval_sets_to_partitions ik (join_interval ik acc (Some x)) xs (y::ys)
-      |(x::xs), (y::ys) -> (acc,y) :: interval_sets_to_partitions ik None  (x::xs) ys
+  let rec interval_sets_to_partitions (ik: ikind) (acc : (int_t * int_t) option) (xs: t) (ys: t)= 
+    match xs,ys with 
+    | _, [] -> []
+    |[], (y::ys) -> (acc,y):: interval_sets_to_partitions ik None [] ys 
+    |(x::xs), (y::ys) when  leq_interval (Some x) (Some y) -> interval_sets_to_partitions ik (join_interval ik acc (Some x)) xs (y::ys)
+    |(x::xs), (y::ys) -> (acc,y) :: interval_sets_to_partitions ik None  (x::xs) ys
   
-  let partitions_are_approaching  x y = match x,y with 
-   (Some (_,ar),(_,br)),(Some (al,_),(bl,_)) -> Ints_t.compare (Ints_t.sub al ar) (Ints_t.sub bl br) > 0  
+  let partitions_are_approaching x y = match x, y with 
+    (Some (_, ar), (_, br)), (Some (al, _), (bl, _)) -> Ints_t.compare (Ints_t.sub al ar) (Ints_t.sub bl br) > 0  
     | _,_ -> false
 
   let merge_pair ik (a,b) (c,d) = (join_interval ik a c, (join_interval ik (Some b) (Some d) |> Option.get))
   
   let rec merge_list ik = function 
-    | [] -> []
-    | x::y::xs  when partitions_are_approaching x y -> merge_list ik ((merge_pair ik x y) :: xs)
-    | x::xs -> x :: merge_list ik xs
+  | [] -> []
+  | x::y::xs  when partitions_are_approaching x y -> merge_list ik ((merge_pair ik x y) :: xs)
+  | x::xs -> x :: merge_list ik xs
 
-  let narrow ik xs ys = xs (*TODO consider infinity case*)
+  let narrow ik xs ys = match xs ,ys with 
+  | [], _ -> [] | _ ,[] -> xs
+  | _, _ ->
+    let min_xs = fst (List.hd xs) in
+    let max_xs = snd (List.hd (List.rev xs)) in
+    let min_ys = fst (List.hd ys) in
+    let max_ys = snd (List.hd (List.rev ys)) in
+    let min_range,max_range = range ik in
+    let min = if Ints_t.compare min_xs min_range == 0 then min_ys else min_xs in
+    let max = if Ints_t.compare max_xs max_range == 0 then max_ys else max_xs in
+    xs |> (function (_, y)::z -> (min, y)::z | _ -> []) |> List.rev |> (function (x, _)::z -> (x, max)::z | _ -> []) |> List.rev 
 
-  let widen ik xs ys =  let (min_ik,max_ik) = range ik in interval_sets_to_partitions ik None xs ys |> merge_list ik |> (function
+  let widen ik xs ys = 
+    let (min_ik,max_ik) = range ik in interval_sets_to_partitions ik None xs ys |> merge_list ik |> 
+    (function
     | [] -> []
     | (None,(lb,rb))::ts -> (None, (min_ik,rb))::ts
     | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare lb la < 0 -> (Some (la,ra),(min_ik,rb))::ts
@@ -1293,42 +1285,45 @@ struct
     |> List.rev
     |> List.map snd  
 
-  let starting ik n = match norm ik @@ Some (n, snd (range ik)) with Some (x,y) -> [(x,y)] 
+  let starting ik n = norm ik @@ Some (n, snd (range ik))
 
-  let ending ik n = match norm ik @@ Some (fst (range ik), n) with Some (x,y) -> [(x,y)]
+  let ending ik n = norm ik @@ Some (fst (range ik), n)
 
-  let of_interval ik (x,y) = match norm ik @@ Some (x,y) with Some (x',y') -> [(x',y')] | None -> []
+  let minimal = function [] -> None | (x, _)::_ -> Some x
+
+  let maximal xs = xs |> List.rev |> (function [] -> None | (_, y)::_ -> Some y)
+
+  let of_interval ik (x, y) = norm ik @@ Some (x, y)
 
   let of_int ik (x: int_t) = of_interval ik (x, x)
 
   let of_bool _ik = function true -> one | false -> zero
   
-  let invariant_ikind_interval e ik x =
-    match x with
-    |  (x1, x2) when Ints_t.compare x1 x2 = 0 ->
-      let x1 = Ints_t.to_bigint x1 in
-      Invariant.of_exp Cil.(BinOp (Eq, e, kintegerCilint ik x1, intType))
-    | (x1, x2) ->
-      let open Invariant in
-      let (min_ik, max_ik) = range ik in
-      let (x1', x2') = BatTuple.Tuple2.mapn (Ints_t.to_bigint) (x1, x2) in
-      let i1 = if Ints_t.compare min_ik x1 <> 0 then of_exp Cil.(BinOp (Le, kintegerCilint ik x1', e, intType)) else none in
-      let i2 = if Ints_t.compare x2 max_ik <> 0 then of_exp Cil.(BinOp (Le, e, kintegerCilint ik x2', intType)) else none in
-      i1 && i2
+  let invariant_ikind_interval e ik x = match x with
+  | (x1, x2) when Ints_t.compare x1 x2 = 0 ->
+    let x1 = Ints_t.to_bigint x1 in
+    Invariant.of_exp Cil.(BinOp (Eq, e, kintegerCilint ik x1, intType))
+  | (x1, x2) ->
+    let open Invariant in
+    let (min_ik, max_ik) = range ik in
+    let (x1', x2') = BatTuple.Tuple2.mapn (Ints_t.to_bigint) (x1, x2) in
+    let i1 = if Ints_t.compare min_ik x1 <> 0 then of_exp Cil.(BinOp (Le, kintegerCilint ik x1', e, intType)) else none in
+    let i2 = if Ints_t.compare x2 max_ik <> 0 then of_exp Cil.(BinOp (Le, e, kintegerCilint ik x2', intType)) else none in
+    i1 && i2
 
   let invariant_ikind e ik xs = List.map (invariant_ikind_interval e ik) xs |> let open Invariant in List.fold_left (||) (bot ())
   
   let modulo n k =
     let result = Ints_t.rem n k in
     if Ints_t.compare result Ints_t.zero >= 0 then result
-    else Ints_t.add result  k
+    else Ints_t.add result k
 
-  let refine_with_congruence_interval ik (cong : (int_t * int_t ) option) (intv : (int_t * int_t ) option) =
+  let refine_with_congruence_interval ik (cong : (int_t * int_t ) option) (intv : (int_t * int_t ) option): t =
     match intv, cong with
     | Some (x, y), Some (c, m) ->
-      if Ints_t.equal m Ints_t.zero && (Ints_t.compare c x < 0 || Ints_t.compare c y > 0) then None
+      if Ints_t.equal m Ints_t.zero && (Ints_t.compare c x < 0 || Ints_t.compare c y > 0) then []
       else if Ints_t.equal m Ints_t.zero then
-        Some (c, c)
+        [(c, c)]
       else
         let (min_ik, max_ik) = range ik in
         let rcx =
@@ -1337,31 +1332,40 @@ struct
         let lcy =
           if Ints_t.equal y max_ik then y else
             Ints_t.sub y (modulo (Ints_t.sub y c) (Ints_t.abs m)) in
-        if Ints_t.compare rcx lcy > 0 then None
+        if Ints_t.compare rcx lcy > 0 then []
         else if Ints_t.equal rcx lcy then norm ik @@ Some (rcx, rcx)
         else norm ik @@ Some (rcx, lcy)
-    | _ -> None
+    | _ -> []
 
-  let refine_with_congruence ik (intvs :t) (cong : (int_t * int_t ) option) :t = 
-    List.map (fun x -> Some x) intvs |> List.map (refine_with_congruence_interval ik cong) |> List.map (Option.get)
+  let refine_with_congruence ik (intvs: t) (cong: (int_t * int_t ) option): t =
+    List.map (fun x -> Some x) intvs |> List.map (refine_with_congruence_interval ik cong) |> List.flatten
 
   let refine_with_interval ik xs = function None -> [] | Some (a,b) -> meet ik xs [(a,b)]
 
   let refine_with_incl_list ik intvs  = function
-  | None -> []
+  | None -> intvs
   | Some xs -> meet ik intvs (List.map (fun x -> (x,x)) xs)
 
-  let excl_to_intervalset (ik : ikind) ((rl,rh): (int64 * int64)) (excl : int_t): t = 
-    let intv1 = norm ik @@ Some (Ints_t.of_bigint (Size.min_from_bit_range rl), Ints_t.sub excl Ints_t.one) in
-    let intv2 = norm ik @@ Some (Ints_t.add excl Ints_t.one,  Ints_t.of_bigint (Size.max_from_bit_range rh)) in
-   [intv1; intv2] |> List.filter_map (fun x -> x)
+  let excl_range_to_intervalset (ik: ikind) ((min, max): int_t * int_t) (excl: int_t): t = 
+    let intv1 = norm ik @@ Some (min, Ints_t.sub excl Ints_t.one) in
+    let intv2 = norm ik @@ Some (Ints_t.add excl Ints_t.one, max) in
+    intv1 @ intv2
+
+  let excl_to_intervalset (ik: ikind) ((rl, rh): (int64 * int64)) (excl: int_t): t = 
+    excl_range_to_intervalset ik (Ints_t.of_bigint (Size.min_from_bit_range rl),Ints_t.of_bigint (Size.max_from_bit_range rh)) excl
+
+  let of_excl_list ik (excls: int_t list) = 
+    let excl_list = List.map (excl_range_to_intervalset ik (range ik)) excls in
+    List.fold_left (meet ik) (top_of ik) excl_list
 
   let refine_with_excl_list ik (intv : t) = function
-  | None -> []
-  | Some (xs, range) -> let excl_list = List.map (excl_to_intervalset ik range) xs in 
-  List.fold_left (meet ik) intv excl_list
+    | None -> intv
+    | Some (xs, range) -> 
+      let excl_list = List.map (excl_to_intervalset ik range) xs in 
+      List.fold_left (meet ik) intv excl_list
 
   let project ik p t = t
+  
   let arbitrary ik =
     let open QCheck.Iter in
     (* let int_arb = QCheck.map ~rev:Ints_t.to_bigint Ints_t.of_bigint MyCheck.Arbitrary.big_int in *)
@@ -1369,7 +1373,7 @@ struct
     let int_arb = QCheck.map ~rev:Ints_t.to_int64 Ints_t.of_int64 MyCheck.Arbitrary.int64 in
     let pair_arb = QCheck.pair int_arb int_arb in
     let list_pair_arb = QCheck.small_list pair_arb in
-    let canonize_randomly_generated_list = fun x -> List.map (fun x -> Some x) x |> List.map (norm ik) |> List.filter_map (fun x -> x) |> canonize in
+    let canonize_randomly_generated_list = fun x -> List.map (fun x -> Some x) x |> List.map (norm ik) |> List.flatten |> canonize in
     let shrink xs = MyCheck.shrink list_pair_arb xs >|= canonize_randomly_generated_list
     in QCheck.(set_shrink shrink @@ set_print show @@ map (*~rev:BatOption.get*) canonize_randomly_generated_list list_pair_arb)
   
@@ -3182,31 +3186,46 @@ module IntDomTupleImpl = struct
       | Some ra, Some rb -> BI.compare ika ra < 0 || BI.compare rb ikb < 0
       | _ -> false
 
+  let no_overflow_interval_set ik r = 
+    if should_ignore_overflow ik then true
+    else
+      let ika, ikb = Size.range ik in
+      match I5.minimal r, I5.maximal r with 
+      | Some ra, Some rb -> BI.compare ika ra < 0 || BI.compare rb ikb < 0
+      | _ -> false
+
   (* map with overflow check *)
   let mapovc ik r (a, b, c, d, e) =
     let map f ?no_ov = function Some x -> Some (f ?no_ov x) | _ -> None  in
     let intv = map (r.f1 (module I2)) b in
-    let no_ov =
-      match intv with Some i -> no_overflow ik i | _ -> should_ignore_overflow ik
-    in refine ik
+    let intv_set = map (r.f1 (module I5)) e in
+    let no_ov_intv =
+      match intv with Some i -> no_overflow ik i | _ -> should_ignore_overflow ik in
+    let no_ov_intv_set =
+      match intv_set with Some i -> no_overflow_interval_set ik i | _ -> should_ignore_overflow ik in
+    let no_ov = no_ov_intv || no_ov_intv_set in
+    refine ik
     ( map (r.f1 (module I1)) a
     , intv
     , map (r.f1 (module I3)) c
     , map (r.f1 (module I4)) ~no_ov d
-    , map (r.f1 (module I5)) e )
+    , intv_set )
 
   (* map2 with overflow check *)
   let map2ovc ik r (xa, xb, xc, xd, xe) (ya, yb, yc, yd, ye) =
     let intv = opt_map2 (r.f2 (module I2)) xb yb in
-    let no_ov =
-      match intv with Some i -> no_overflow ik i | _ -> should_ignore_overflow ik
-    in
+    let intv_set = opt_map2 (r.f2 (module I5)) xe ye in
+    let no_ov_intv =
+      match intv with Some i -> no_overflow ik i | _ -> should_ignore_overflow ik in
+    let no_ov_intv_set =
+      match intv_set with Some i -> no_overflow_interval_set ik i | _ -> should_ignore_overflow ik in
+    let no_ov = no_ov_intv || no_ov_intv_set in
     refine ik
       ( opt_map2 (r.f2 (module I1)) xa ya
       , intv
       , opt_map2 (r.f2 (module I3)) xc yc
       , opt_map2 (r.f2 (module I4)) ~no_ov xd yd
-      , opt_map2 (r.f2 (module I5)) xe ye )
+      , intv_set )
 
   let map ik r (a, b, c, d, e) =
     refine ik
