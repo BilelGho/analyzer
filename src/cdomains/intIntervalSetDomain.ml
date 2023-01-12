@@ -1,8 +1,13 @@
+open GoblintCil
 
-module IntervalSetFunctor(Ints_t : IntOps.IntOps): SOverFlow with type int_t = Ints_t.t and type t = (Ints_t.t * Ints_t.t) list =
+module GU = Goblintutil
+module M = Messages
+module BI = IntOps.BigIntOps
+
+module IntervalSetFunctor(Ints_t : IntOps.IntOps): IntDomain.SOverFlow with type int_t = Ints_t.t and type t = (Ints_t.t * Ints_t.t) list =
 struct
 
-  module Interval = IntervalFunctor(Ints_t) 
+  module Interval = IntDomain.IntervalFunctor(Ints_t)
 
   let name () = "IntervalSets"
 
@@ -14,7 +19,7 @@ struct
   *)
   type t = (Ints_t.t * Ints_t.t) list [@@deriving eq, hash, ord]
 
-  let range ik = BatTuple.Tuple2.mapn Ints_t.of_bigint (Size.range ik)
+  let range ik = BatTuple.Tuple2.mapn Ints_t.of_bigint (IntDomain.Size.range ik)
 
   let top () = failwith @@ "top () not implemented for " ^ (name ())
 
@@ -94,8 +99,7 @@ struct
     | _, [] -> []
     | _, _ -> canonize @@ List.concat_map op (BatList.cartesian_product x y)
 
-
-  include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
+  include IntDomain.Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
   let minimal = function 
     | [] -> None 
@@ -126,7 +130,7 @@ struct
       let overflow = Ints_t.compare max_ik y < 0 in
       if underflow || overflow then
         begin
-          if should_wrap ik then (* could add [|| cast], but that's GCC implementation-defined behavior: https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html#Integers-implementation *)
+          if IntDomain.should_wrap ik then (* could add [|| cast], but that's GCC implementation-defined behavior: https://gcc.gnu.org/onlinedocs/gcc/Integers-implementation.html#Integers-implementation *)
             (* We can only soundly wrap if at most one overflow occurred, otherwise the minimal and maximal values of the interval *)
             (* on Z will not safely contain the minimal and maximal elements after the cast *)
             let diff = Ints_t.abs (Ints_t.sub max_ik min_ik) in
@@ -134,14 +138,14 @@ struct
             if Ints_t.compare resdiff diff > 0 then
               ([range ik], underflow && not suppress_ovwarn, overflow && not suppress_ovwarn, cast)
             else
-              let l = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint x) in
-              let u = Ints_t.of_bigint @@ Size.cast ik (Ints_t.to_bigint y) in
+              let l = Ints_t.of_bigint @@ IntDomain.Size.cast ik (Ints_t.to_bigint x) in
+              let u = Ints_t.of_bigint @@ IntDomain.Size.cast ik (Ints_t.to_bigint y) in
               if Ints_t.compare l u <= 0 then
                 ([(l, u)], underflow && not suppress_ovwarn, overflow && not suppress_ovwarn, cast)
               else
                 (* Interval that wraps around (begins to the right of its end). We CAN represent such intervals *)
                 ([(min_ik, u); (l, max_ik)], underflow && not suppress_ovwarn, overflow && not suppress_ovwarn, cast)
-          else if not cast && should_ignore_overflow ik then
+          else if not cast && IntDomain.should_ignore_overflow ik then
             let tl, tu = range ik in
             ([Ints_t.max tl x, Ints_t.min tu y], underflow && not suppress_ovwarn, overflow && not suppress_ovwarn, cast)
           else
@@ -226,7 +230,7 @@ struct
   let lt ik x y = 
     match x, y with 
     | [], [] -> bot_of ik
-    | [], _ | _, [] -> raise (ArithmeticOnIntegerBot (Printf.sprintf "%s op %s" (show x) (show y)))
+    | [], _ | _, [] -> raise (IntDomain.ArithmeticOnIntegerBot (Printf.sprintf "%s op %s" (show x) (show y)))
     | _, _ ->
       let (max_x, min_y) = (maximal x |> Option.get , minimal y |> Option.get) in
       let (min_x, max_y) = (minimal x |> Option.get , maximal y |> Option.get) in
@@ -238,7 +242,7 @@ struct
   let le ik x y =
     match x, y with 
     | [], [] -> bot_of ik
-    | [], _ | _, [] -> raise (ArithmeticOnIntegerBot (Printf.sprintf "%s op %s" (show x) (show y)))
+    | [], _ | _, [] -> raise (IntDomain.ArithmeticOnIntegerBot (Printf.sprintf "%s op %s" (show x) (show y)))
     | _, _ ->
       let (max_x, min_y) = (maximal x |> Option.get , minimal y |> Option.get) in
       let (min_x, max_y) = (minimal x |> Option.get , maximal y |> Option.get) in
