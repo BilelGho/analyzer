@@ -477,7 +477,7 @@ struct
   include I
 
   let top () = failwith "top in IntDomTuple not supported. Use top_of instead."
-  let no_interval (x: I.t) = {x with v = IntDomTupleImpl.no_interval x.v}
+  let no_interval (x: I.t) = I.update_v x (IntDomTupleImpl.no_interval (I.get_v x))
 
   let no_intervalSet (x: I.t) = {x with v = IntDomTupleImpl.no_intervalSet x.v}
 end

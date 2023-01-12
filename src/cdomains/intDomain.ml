@@ -329,6 +329,9 @@ struct
   type int_t = I.int_t
   type t = { v : I.t; ikind : CilType.Ikind.t } [@@deriving eq, ord, hash]
 
+  let update_v x new_v = {x with v = new_v}
+  let get_v x = x.v
+
   let ikind {ikind; _} = ikind
 
   (* Helper functions *)

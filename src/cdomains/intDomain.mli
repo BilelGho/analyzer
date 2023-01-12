@@ -337,11 +337,86 @@ end
 
 module type Z = Y with type int_t = IntOps.BigIntOps.t 
 
-module IntDomLifterType (I: S) : sig 
-  type t = { v : I.t; ikind : CilType.Ikind.t }
+module IntDomLifter (I: S)
+  : sig
+  type int_t = I.int_t
+  type t = { v : I.t; ikind : ikind }
+
+  val equal : t -> t -> PrecisionUtil.float_precision
+  val compare : t -> t -> int
+  val hash : t -> int
+  val update_v : t -> I.t -> t
+  val get_v : t -> I.t
+  val check_ikinds : t -> t -> unit
+  val lift : (ikind -> I.t -> I.t) -> t -> t
+  val lift_logical : (ikind -> I.t -> I.t) -> t -> t
+  val lift2 : (ikind -> I.t -> I.t -> I.t) -> t -> t -> t
+  val lift2_cmp : (ikind -> I.t -> I.t -> I.t) -> t -> t -> t
+  val bot_of : ikind -> t
+  val bot : unit -> 'a
+  val is_bot : t -> PrecisionUtil.float_precision
+  val top_of : ikind -> t
+  val top : unit -> 'a
+  val is_top : t -> PrecisionUtil.float_precision
+  val leq : t -> t -> PrecisionUtil.float_precision
+  val join : t -> t -> t
+  val meet : t -> t -> t
+  val widen : t -> t -> t
+  val narrow : t -> t -> t
+  val show : t -> string
+  val pretty : unit -> t -> Pretty.doc
+  val pretty_diff : unit -> t * t -> Pretty.doc
+  val printXml : 'a BatInnerIO.output -> t -> unit
+  val name : unit -> string
+  val to_yojson : t -> Yojson.Safe.t
+  val invariant : exp -> t -> Invariant.t
+  val tag : t -> int
+  val arbitrary : 'a -> 'b
+  val to_int : t -> I.int_t option
+  val of_int : ikind -> I.int_t -> t
+  val equal_to : I.int_t -> t -> [ `Eq | `Neq | `Top ]
+  val to_bool : t -> PrecisionUtil.float_precision option
+  val of_bool : ikind -> PrecisionUtil.float_precision -> t
+
+  val to_excl_list :
+    t -> (I.int_t list * (int64 * int64)) option
+
+  val of_excl_list : ikind -> I.int_t list -> t
+  val is_excl_list : t -> PrecisionUtil.float_precision
+  val to_incl_list : t -> I.int_t list option
+  val of_interval : ikind -> I.int_t * I.int_t -> t
+  val of_congruence : ikind -> I.int_t * I.int_t -> t
+  val starting : ikind -> I.int_t -> t
+  val ending : ikind -> I.int_t -> t
+  val maximal : t -> I.int_t option
+  val minimal : t -> I.int_t option
+  val neg : t -> t
+  val add : t -> t -> t
+  val sub : t -> t -> t
+  val mul : t -> t -> t
+  val div : t -> t -> t
+  val rem : t -> t -> t
+  val lt : t -> t -> t
+  val gt : t -> t -> t
+  val le : t -> t -> t
+  val ge : t -> t -> t
+  val eq : t -> t -> t
+  val ne : t -> t -> t
+  val bitnot : t -> t
+  val bitand : t -> t -> t
+  val bitor : t -> t -> t
+  val bitxor : t -> t -> t
+  val shift_left : t -> t -> t
+  val shift_right : t -> t -> t
+  val lognot : t -> t
+  val logand : t -> t -> t
+  val logor : t -> t -> t
+  val cast_to : ?torg:'a -> ikind -> t -> t
+  val is_top_of : ikind -> t -> PrecisionUtil.float_precision
+  val relift : t -> t
+  val project : PrecisionUtil.int_precision -> t -> t
 end
 
-module IntDomLifter (I: S): Y with type int_t = I.int_t and type t = IntDomLifterType(I).t
 
 module type Ikind =
 sig
