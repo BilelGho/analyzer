@@ -2,6 +2,8 @@ open GoblintCil
 open Pretty
 open PrecisionUtil
 open FloatOps
+open IntDomTuple
+
 
 exception ArithmeticOnFloatBot of string
 

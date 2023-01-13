@@ -1,6 +1,7 @@
 (** Structures for the querying subsystem. *)
 
 open GoblintCil
+open IntDomTuple
 
 module GU = Goblintutil
 module ID =

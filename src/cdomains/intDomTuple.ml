@@ -1,5 +1,3 @@
-open PrecisionUtil
-open GobConfig
 open GoblintCil
 open Pretty
 open PrecisionUtil
@@ -13,12 +11,15 @@ module IntDomTupleImpl = struct
   include Printable.Std (* for default invariant, tag, ... *)
 
   open Batteries
+
   type int_t = BI.t
+  
   module I1 = SOverFlowLifter(IntDomain.DefExc)
   module I2 = IntDomain.IntervalFunctor (BI)
   module I3 = SOverFlowLifter(IntDomain.Enums)
   module I4 = SOverFlowLifter(IntDomain.Congruence)
   module I5 = IntIntervalSetDomain.IntervalSetFunctor (BI)
+
 
   type t = I1.t option * I2.t option * I3.t option * I4.t option * I5.t option
   [@@deriving to_yojson, eq, ord]
