@@ -382,6 +382,8 @@ module BigInt:
 
 module Interval : S with type int_t = IntOps.BigIntOps.t
 
+module IntervalSet : S with type int_t = IntOps.BigIntOps.t
+
 module Congruence : S with type int_t = IntOps.BigIntOps.t
 
 module DefExc : S with type int_t = IntOps.BigIntOps.t
