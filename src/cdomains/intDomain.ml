@@ -960,15 +960,15 @@ struct
     | Exit x -> Printf.sprintf "Exit %s" (Ints_t.to_string x)
 
   let cmp_events x y = 
-      let res = Ints_t.compare (unbox_event x) (unbox_event y) in
-      if res <> 0 then res
-      else
-        begin
-          match (x, y) with
-          | (Enter _, Exit _) -> -1
-          | (Exit _, Enter _) -> 1
-          | (_, _) -> 0
-        end
+    let res = Ints_t.compare (unbox_event x) (unbox_event y) in
+    if res <> 0 then res
+    else
+      begin
+        match (x, y) with
+        | (Enter _, Exit _) -> -1
+        | (Exit _, Enter _) -> 1
+        | (_, _) -> 0
+      end
 
   let interval_set_to_events (xs: t) = 
     List.concat_map (fun (a, b) -> [Enter a; Exit b]) xs
@@ -1008,12 +1008,12 @@ struct
 
   let unary_op (x: t) op = match x with 
     | [] -> []
-    | _ -> canonize (List.filter_map op x)
+    | _ -> canonize @@ List.concat_map op x
 
-  let binary_op ik (x: t) (y: t) op : t = match x, y with
+  let binary_op (x: t) (y: t) op : t = match x, y with
     | [], _ -> []
     | _, [] -> []
-    | _, _ -> canonize (List.filter_map op (BatList.cartesian_product x y))
+    | _, _ -> canonize @@ List.concat_map op (BatList.cartesian_product x y)
 
   include Std (struct type nonrec t = t let name = name let top_of = top_of let bot_of = bot_of let show = show let equal = equal end)
 
@@ -1075,33 +1075,29 @@ struct
     | [], _ -> true
     | _, [] -> false
     | (xl,xr)::xs', (yl,yr)::ys' -> if leq_interval (xl,xr) (yl,yr) then
-      leq xs' ys else if Ints_t.compare xr yl < 0 then false else  leq xs ys'
+        leq xs' ys else if Ints_t.compare xr yl < 0 then false else leq xs ys'
+
   let join ik (x: t) (y: t): t = 
-    let out = two_interval_sets_to_events x y |> 
+    two_interval_sets_to_events x y |> 
     combined_event_list `Join |>
     events_to_intervals |>
-    remove_gaps in
-    (* ignore (Pretty.printf "join: %s\n" (show out)); *)
-    out
+    remove_gaps
 
   let meet ik (x: t) (y: t): t = 
-    let out = two_interval_sets_to_events x y |> 
+    two_interval_sets_to_events x y |> 
     combined_event_list  `Meet |> 
     events_to_intervals |> 
-    remove_gaps in
-    (* ignore (Pretty.printf "meet: %s\n" (show out)); *)
-    out
-
+    remove_gaps
 
   let to_int = function [(x, y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
 
   let zero = [(Ints_t.zero, Ints_t.zero)]
-  let one =  [(Ints_t.one, Ints_t.one)]
+  let one = [(Ints_t.one, Ints_t.one)]
 
   let top_bool = [(Ints_t.zero, Ints_t.one)]
 
   let to_bool = function  
-    | [(l,u)]  when Ints_t.compare l Ints_t.zero = 0 && Ints_t.compare u Ints_t.zero = 0 -> Some false
+    | [(l,u)] when Ints_t.compare l Ints_t.zero = 0 && Ints_t.compare u Ints_t.zero = 0 -> Some false
     | x -> if leq zero x then None else Some true
 
   let of_bool _ = function true -> one | false -> zero 
@@ -1110,9 +1106,9 @@ struct
 
   let is_false x = x == zero
 
-  let wrap_unary_interval_function f ik a = f ik (Some a)
+  let of_interval ik (x, y) = norm ik @@ Some (x, y)
 
-  let wrap_binary_interval_function f ik (a, b) = f ik (Some a) (Some b)
+  let of_int ik (x: int_t) = of_interval ik (x, x)
 
   let get_lhs_rhs_boundaries (x: t) (y: t) = 
     let lhs = List.hd x in
@@ -1178,55 +1174,124 @@ struct
     else 
     if is_false res then one else top_bool
 
+  let interval_to_int i = Interval.to_int (Some i)
+  let interval_to_bool i = Interval.to_bool (Some i)
+
+  let log f ik (i1, i2) = 
+    match (interval_to_bool i1, interval_to_bool i2) with
+    | Some x, Some y -> of_bool ik (f x y)
+    | _ -> top_of ik
+
+  let log1 f ik i1 = 
+    match interval_to_bool i1 with
+    | Some x -> of_bool ik (f ik x)
+    | _ -> top_of ik
+
+  let bit f ik (i1, i2) =
+    match (interval_to_int i1), (interval_to_int i2) with
+    | Some x, Some y -> (try norm ik (Interval.of_int ik (f ik x y)) with Division_by_zero -> top_of ik)
+    | _ -> top_of ik
+
+  let bit1 f ik i1 =
+    match interval_to_int i1 with
+    | Some x -> of_int ik (f ik x)
+    | _ -> top_of ik
+
+  let bitcomp f ik (i1, i2) = 
+    match (interval_to_int i1, interval_to_int i2) with 
+    | Some x, Some y -> (try norm ik (Interval.of_int ik (f ik x y)) with Division_by_zero | Invalid_argument _ -> top_of ik)
+    | _, _ -> (set_overflow_flag ~cast:false ~underflow:true ~overflow:true ik;  top_of ik)
+
   let bitand ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.bitand ik)
+    let interval_bitand = bit (fun _ik -> Ints_t.bitand) ik in
+    binary_op x y interval_bitand
 
   let bitor ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.bitor ik)
-
-  let bitnot ik x = 
-    unary_op x (wrap_unary_interval_function Interval.bitnot ik)
+    let interval_bitor = bit (fun _ik -> Ints_t.bitor) ik in
+    binary_op x y interval_bitor
 
   let bitxor ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.bitxor ik)
+    let interval_bitxor = bit (fun _ik -> Ints_t.bitxor) ik in
+    binary_op x y interval_bitxor
+
+  let bitnot ik x = 
+    let interval_bitnot = bit1 (fun _ik -> Ints_t.bitnot) ik in
+    unary_op x interval_bitnot
 
   let shift_left ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.shift_left ik)
+    let interval_shiftleft = bitcomp (fun _ik x y -> Ints_t.shift_left x (Ints_t.to_int y)) ik in
+    binary_op x y interval_shiftleft
 
   let shift_right ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.shift_right ik)
+    let interval_shiftright = bitcomp (fun _ik x y -> Ints_t.shift_right x (Ints_t.to_int y)) ik in
+    binary_op x y interval_shiftright
 
   let lognot ik x = 
-    unary_op x (wrap_unary_interval_function Interval.lognot ik)
+    let interval_lognot = log1 (fun _ik -> not) ik in
+    unary_op x interval_lognot
 
   let logand ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.logand ik)
+    let interval_logand = log (&&) ik in
+    binary_op x y interval_logand
 
   let logor ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.logor ik)
+    let interval_logor = log (||) ik in
+    binary_op x y interval_logor
 
-  let add ?no_ov ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.add ik)
+  let add ?no_ov ik x y =
+    let interval_add ((x1, x2), (y1, y2)) = norm ik @@ Some (Ints_t.add x1 y1, Ints_t.add x2 y2) in
+    binary_op x y interval_add
 
   let neg ?no_ov ik x = 
-    unary_op x (wrap_unary_interval_function Interval.neg ik)
+    let neg_interval ((x, y)) = norm ik @@ Some (Ints_t.neg y, Ints_t.neg x) in
+    unary_op x neg_interval
 
   let sub ?no_ov ik x y = 
-    let out = binary_op ik x y (wrap_binary_interval_function Interval.sub ik) in
-    (* ignore (Pretty.printf "sub out: %s\n" (show out)); *)
-    out
+    let interval_sub ((x1, x2), (y1, y2)) = norm ik @@ Some (Ints_t.sub x1 y2, Ints_t.sub x2 y1) in
+    binary_op x y interval_sub
 
   let mul ?no_ov (ik: ikind) (x: t) (y: t) : t = 
-    binary_op ik x y (wrap_binary_interval_function Interval.mul ik)
+    let interval_mul ((x1, x2), (y1, y2)) = 
+      let x1y1 = (Ints_t.mul x1 y1) in let x1y2 = (Ints_t.mul x1 y2) in
+      let x2y1 = (Ints_t.mul x2 y1) in let x2y2 = (Ints_t.mul x2 y2) in
+      norm ik @@ Some ((Ints_t.min (Ints_t.min x1y1 x1y2) (Ints_t.min x2y1 x2y2)), (Ints_t.max (Ints_t.max x1y1 x1y2) (Ints_t.max x2y1 x2y2)))
+    in
+    binary_op x y interval_mul
 
   let div ?no_ov ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.div ik)
+    let rec interval_div ((x1, x2), (y1, y2)) = begin
+      let is_zero v = Ints_t.compare v Ints_t.zero = 0 in
+      match y1, y2 with
+      | l, u when is_zero l && is_zero u -> top_of ik (* TODO warn about undefined behavior *)
+      | l, _ when is_zero l              -> interval_div ((x1,x2), (Ints_t.one,y2))
+      | _, u when is_zero u              -> interval_div ((x1,x2), (y1, Ints_t.(neg one)))
+      | _ when leq (of_int ik (Ints_t.zero)) ([(y1,y2)]) -> top_of ik
+      | _ ->
+        let x1y1n = (Ints_t.div x1 y1) in let x1y2n = (Ints_t.div x1 y2) in
+        let x2y1n = (Ints_t.div x2 y1) in let x2y2n = (Ints_t.div x2 y2) in
+        let x1y1p = (Ints_t.div x1 y1) in let x1y2p = (Ints_t.div x1 y2) in
+        let x2y1p = (Ints_t.div x2 y1) in let x2y2p = (Ints_t.div x2 y2) in
+        norm ik @@ Some ((Ints_t.min (Ints_t.min x1y1n x1y2n) (Ints_t.min x2y1n x2y2n)),
+                         (Ints_t.max (Ints_t.max x1y1p x1y2p) (Ints_t.max x2y1p x2y2p)))
+    end
+    in
+    binary_op x y interval_div
 
   let rem ik x y = 
-    binary_op ik x y (wrap_binary_interval_function Interval.rem ik)
+    let interval_rem (x, y) = 
+      if Interval.is_top_of ik (Some x) && Interval.is_top_of ik (Some y) then
+        top_of ik
+      else
+        let (xl, xu) = x in let (yl, yu) = y in
+        let pos x = if Ints_t.compare x Ints_t.zero < 0 then Ints_t.neg x else x in
+        let b = Ints_t.sub (Ints_t.max (pos yl) (pos yu)) Ints_t.one in
+        let range = if Ints_t.compare xl Ints_t.zero>= 0 then (Ints_t.zero, Ints_t.min xu b) else (Ints_t.max xl (Ints_t.neg b), Ints_t.min (Ints_t.max (pos xl) (pos xu)) b) in
+        meet ik (bit (fun _ik -> Ints_t.rem) ik (x, y)) [range]
+    in
+    binary_op x y interval_rem
 
   let cast_to ?torg ?no_ov ik x = 
-    List.map (fun x -> norm ~cast:true ik (Some x)) x |> List.flatten |> canonize
+    List.concat_map (fun x -> norm ~cast:true ik (Some x)) x |> canonize
 
   let rec interval_sets_to_partitions (ik: ikind) (acc : (int_t * int_t) option) (xs: t) (ys: t)= 
     match xs,ys with 
@@ -1241,30 +1306,30 @@ struct
 
   let merge_pair ik (a,b) (c,d) =
     let (min_ik, max_ik) = range ik in
-      let threshold = get_bool "ana.int.interval_threshold_widening" in
-      let upper_threshold (_,u) =
-        let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force widening_thresholds in
-        let u = Ints_t.to_bigint u in
-        let t = List.find_opt (fun x -> Z.compare u x <= 0) ts in
-        BatOption.map_default Ints_t.of_bigint max_ik t
-      in
-      let lower_threshold (l,_) =
-        let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force widening_thresholds_desc in
-        let l = Ints_t.to_bigint l in
-        let t = List.find_opt (fun x -> Z.compare l x >= 0) ts in
-        BatOption.map_default Ints_t.of_bigint min_ik t
-      in
+    let threshold = get_bool "ana.int.interval_threshold_widening" in
+    let upper_threshold (_,u) =
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force widening_thresholds in
+      let u = Ints_t.to_bigint u in
+      let t = List.find_opt (fun x -> Z.compare u x <= 0) ts in
+      BatOption.map_default Ints_t.of_bigint max_ik t
+    in
+    let lower_threshold (l,_) =
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force widening_thresholds_desc in
+      let l = Ints_t.to_bigint l in
+      let t = List.find_opt (fun x -> Z.compare l x >= 0) ts in
+      BatOption.map_default Ints_t.of_bigint min_ik t
+    in
     if threshold && Ints_t.compare (lower_threshold d) (upper_threshold b) > 1 then 
       let new_a = function
-      | None -> Some (upper_threshold b, upper_threshold b)
-      | Some (ax,ay) -> Some (ax, upper_threshold b)
+        | None -> Some (upper_threshold b, upper_threshold b)
+        | Some (ax,ay) -> Some (ax, upper_threshold b)
       in
       let new_c = function
-      | None -> Some (lower_threshold d, lower_threshold d)
-      | Some (cx,cy) -> Some (lower_threshold d, cy)
+        | None -> Some (lower_threshold d, lower_threshold d)
+        | Some (cx,cy) -> Some (lower_threshold d, cy)
       in
       [(new_a a,(fst b, upper_threshold b)); (new_c c, (lower_threshold d, snd d))] else
-    [(Interval.join ik a c, (Interval.join ik (Some b) (Some d) |> Option.get))]
+      [(Interval.join ik a c, (Interval.join ik (Some b) (Some d) |> Option.get))]
 
   let rec merge_list ik = function 
     | [] -> []
@@ -1285,48 +1350,45 @@ struct
 
   let widen ik xs ys = 
     let (min_ik,max_ik) = range ik in 
-  let threshold = get_bool "ana.int.interval_threshold_widening" in
-      let upper_threshold u =
-        let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force widening_thresholds in
-        let u = Ints_t.to_bigint u in
-        let t = List.find_opt (fun x -> Z.compare u x <= 0) ts in
-        BatOption.map_default Ints_t.of_bigint max_ik t
-      in
-      let lower_threshold l =
-        let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force widening_thresholds_desc in
-        let l = Ints_t.to_bigint l in
-        let t = List.find_opt (fun x -> Z.compare l x >= 0) ts in
-        BatOption.map_default Ints_t.of_bigint min_ik t
-      in
-  
-  interval_sets_to_partitions ik None xs ys |> merge_list ik |> 
-                                      (function
-                                        | [] -> []
-                                        | (None,(lb,rb))::ts -> let lt = if threshold then lower_threshold lb else min_ik in (None, (lt,rb))::ts
-                                        | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare lb la < 0 ->  let lt = if threshold then lower_threshold lb else min_ik in (Some (la,ra),(lt,rb))::ts
-                                        | x  -> x)
-                                      |> List.rev
-                                      |> (function
-                                          | [] -> []
-                                          | (None,(lb,rb))::ts -> let ut = if threshold then upper_threshold rb else max_ik in (None, (lb,ut))::ts
-                                          | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare ra rb < 0 -> let ut = if threshold then upper_threshold rb else max_ik in (Some (la,ra),(lb,ut))::ts
-                                          | x  -> x)
-                                      |> List.rev
-                                      |> List.map snd  
+    let threshold = get_bool "ana.int.interval_threshold_widening" in
+    let upper_threshold u =
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force widening_thresholds in
+      let u = Ints_t.to_bigint u in
+      let t = List.find_opt (fun x -> Z.compare u x <= 0) ts in
+      BatOption.map_default Ints_t.of_bigint max_ik t
+    in
+    let lower_threshold l =
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force widening_thresholds_desc in
+      let l = Ints_t.to_bigint l in
+      let t = List.find_opt (fun x -> Z.compare l x >= 0) ts in
+      BatOption.map_default Ints_t.of_bigint min_ik t
+    in
+    interval_sets_to_partitions ik None xs ys |> merge_list ik |> 
+    (function
+      | [] -> []
+      | (None,(lb,rb))::ts -> let lt = if threshold then lower_threshold lb else min_ik in (None, (lt,rb))::ts
+      | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare lb la < 0 ->  let lt = if threshold then lower_threshold lb else min_ik in (Some (la,ra),(lt,rb))::ts
+      | x  -> x)
+    |> List.rev
+    |> (function
+        | [] -> []
+        | (None,(lb,rb))::ts -> let ut = if threshold then upper_threshold rb else max_ik in (None, (lb,ut))::ts
+        | (Some (la,ra), (lb,rb))::ts  when Ints_t.compare ra rb < 0 -> let ut = if threshold then upper_threshold rb else max_ik in (Some (la,ra),(lb,ut))::ts
+        | x  -> x)
+    |> List.rev
+    |> List.map snd  
 
   let starting ik n = norm ik @@ Some (n, snd (range ik))
 
   let ending ik n = norm ik @@ Some (fst (range ik), n)
 
-  let minimal = function [] -> None | (x, _)::_ -> Some x
+  let minimal = function 
+    | [] -> None 
+    | (x, _)::_ -> Some x
 
   let maximal = function
     | [] -> None
     | xs ->  let last = BatList.last xs |> snd in Some last
-
-  let of_interval ik (x, y) = norm ik @@ Some (x, y)
-
-  let of_int ik (x: int_t) = of_interval ik (x, x)
 
   let invariant_ikind e ik xs = 
     List.map (fun x -> Interval.invariant_ikind e ik (Some x)) xs |> 
@@ -3238,7 +3300,7 @@ module IntDomTupleImpl = struct
       match intv with Some i -> no_overflow ik i | _ -> should_ignore_overflow ik in
     let no_ov_intv_set =
       match intv_set with Some i -> no_overflow_interval_set ik i | _ -> should_ignore_overflow ik in
-  let no_ov = no_ov_intv || no_ov_intv_set in
+    let no_ov = no_ov_intv || no_ov_intv_set in
     refine ik
       ( opt_map2 (r.f2 (module I1)) xa ya
       , intv
