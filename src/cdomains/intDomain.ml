@@ -1290,7 +1290,7 @@ struct
         let pos x = if Ints_t.compare x Ints_t.zero < 0 then Ints_t.neg x else x in
         let b = Ints_t.sub (Ints_t.max (pos yl) (pos yu)) Ints_t.one in
         let range = if Ints_t.compare xl Ints_t.zero>= 0 then (Ints_t.zero, Ints_t.min xu b) else (Ints_t.max xl (Ints_t.neg b), Ints_t.min (Ints_t.max (pos xl) (pos xu)) b) in
-        meet ik (bit (fun _ik -> Ints_t.rem) ik (x, y)) [range]
+        meet ik (bit (Ints_t.rem) ik (x, y)) [range]
     in
     binary_op x y interval_rem
 
