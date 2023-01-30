@@ -1297,17 +1297,21 @@ struct
   let cast_to ?torg ?no_ov ik x =
     List.concat_map (fun x -> norm_interval ~cast:true ik (Some x)) x |> canonize
 
-  let narrow ik xs ys = match xs ,ys with 
+  (* 
+    Updates xs' extremities using ys. If xs' extremities are equal to infinity then use ys's extremities.
+    Otherwise, leave them as they are.
+  *)
+  let narrow ik xs ys = match xs, ys with 
     | [], _ -> [] | _ ,[] -> xs
     | _, _ ->
-      let min_xs = fst (List.hd xs) in
-      let max_xs = snd @@ BatList.last xs in
-      let min_ys = fst (List.hd ys) in
-      let max_ys = snd @@ BatList.last ys in
-      let min_range,max_range = range ik in
+      let update_minimal new_min = function (_, y)::z -> (new_min, y)::z | _ -> [] in
+      let update_maximal new_max xs = BatList.modify_at ((BatList.length xs) - 1) (function (x, _) -> (x, new_max)) xs in
+      let (min_xs, max_xs) = (minimal xs |> Option.get, maximal xs |> Option.get) in
+      let (min_ys, max_ys) = (minimal ys |> Option.get, maximal ys |> Option.get) in
+      let min_range, max_range = range ik in
       let min = if Ints_t.compare min_xs min_range == 0 then min_ys else min_xs in
       let max = if Ints_t.compare max_xs max_range == 0 then max_ys else max_xs in
-      xs |> (function (_, y)::z -> (min, y)::z | _ -> []) |> List.rev |> (function (x, _)::z -> (x, max)::z | _ -> []) |> List.rev 
+      xs |> update_minimal min |> update_maximal max
 
   (*
     1. partitions xs' intervals by assigning each of them to the an interval in ys that includes it.
