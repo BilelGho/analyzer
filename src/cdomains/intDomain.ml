@@ -1117,7 +1117,9 @@ struct
     events_to_intervals |> 
     remove_empty_gaps
 
-  let to_int = function [(x, y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
+  let to_int = function 
+    | [(x, y)] when Ints_t.compare x y = 0 -> Some x 
+    | _ -> None
 
   let zero = [(Ints_t.zero, Ints_t.zero)]
   let one = [(Ints_t.one, Ints_t.one)]
