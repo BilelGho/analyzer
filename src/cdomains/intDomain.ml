@@ -1098,7 +1098,7 @@ struct
       end
 
   let rec leq (xs: t) (ys: t) =
-    let leq_interval = fun (al, au) (bl, bu) -> Ints_t.compare al bl >= 0 && Ints_t.compare au bu <= 0 in
+    let leq_interval (al, au) (bl, bu) = Ints_t.compare al bl >= 0 && Ints_t.compare au bu <= 0 in
     match xs, ys with
     | [], _ -> true
     | _, [] -> false
@@ -1125,8 +1125,8 @@ struct
   let top_bool = [(Ints_t.zero, Ints_t.one)]
 
   let not_bool (x:t) = 
-    let is_false = fun x -> x = zero in
-    let is_true =  fun x -> x = one in
+    let is_false x = x = zero in
+    let is_true x = x = one in
     if is_true x then zero else if is_false x then one else top_bool 
 
   let to_bool = function  
