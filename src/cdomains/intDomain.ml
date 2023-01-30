@@ -1114,9 +1114,8 @@ struct
   let meet ik (x: t) (y: t): t = 
     two_interval_sets_to_events x y |> 
     combined_event_list  `Meet |> 
-    events_to_intervals |> 
-    remove_empty_gaps
-
+    events_to_intervals 
+    
   let to_int = function 
     | [(x, y)] when Ints_t.compare x y = 0 -> Some x 
     | _ -> None
