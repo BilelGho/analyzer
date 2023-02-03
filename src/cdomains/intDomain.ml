@@ -1098,7 +1098,7 @@ struct
       end
 
   let rec leq (xs: t) (ys: t) =
-    let leq_interval = fun (al, au) (bl, bu) -> Ints_t.compare al bl >= 0 && Ints_t.compare au bu <= 0 in
+    let leq_interval (al, au) (bl, bu) = Ints_t.compare al bl >= 0 && Ints_t.compare au bu <= 0 in
     match xs, ys with
     | [], _ -> true
     | _, [] -> false
@@ -1114,10 +1114,11 @@ struct
   let meet ik (x: t) (y: t): t = 
     two_interval_sets_to_events x y |> 
     combined_event_list  `Meet |> 
-    events_to_intervals |> 
-    remove_empty_gaps
-
-  let to_int = function [(x, y)] when Ints_t.compare x y = 0 -> Some x | _ -> None
+    events_to_intervals 
+    
+  let to_int = function 
+    | [(x, y)] when Ints_t.compare x y = 0 -> Some x 
+    | _ -> None
 
   let zero = [(Ints_t.zero, Ints_t.zero)]
   let one = [(Ints_t.one, Ints_t.one)]
@@ -1125,8 +1126,8 @@ struct
   let top_bool = [(Ints_t.zero, Ints_t.one)]
 
   let not_bool (x:t) = 
-    let is_false = fun x -> x = zero in
-    let is_true =  fun x -> x = one in
+    let is_false x = x = zero in
+    let is_true x = x = one in
     if is_true x then zero else if is_false x then one else top_bool 
 
   let to_bool = function  
@@ -1186,50 +1187,50 @@ struct
 
   let log1 f ik i1 = 
     match interval_to_bool i1 with
-    | Some x -> of_bool ik (f ik x)
+    | Some x -> of_bool ik (f x)
     | _ -> top_of ik
 
   let bit f ik (i1, i2) =
     match (interval_to_int i1), (interval_to_int i2) with
-    | Some x, Some y -> (try norm_interval ik (Interval.of_int ik (f ik x y)) with Division_by_zero -> top_of ik)
+    | Some x, Some y -> (try norm_interval ik (Interval.of_int ik (f x y)) with Division_by_zero -> top_of ik)
     | _ -> top_of ik
 
   let bit1 f ik i1 =
     match interval_to_int i1 with
-    | Some x -> of_int ik (f ik x)
+    | Some x -> of_int ik (f x)
     | _ -> top_of ik
 
   let bitcomp f ik (i1, i2) = 
     match (interval_to_int i1, interval_to_int i2) with 
-    | Some x, Some y -> (try norm_interval ik (Interval.of_int ik (f ik x y)) with Division_by_zero | Invalid_argument _ -> top_of ik)
-    | _, _ -> (set_overflow_flag ~cast:false ~underflow:true ~overflow:true ik;  top_of ik)
+    | Some x, Some y -> (try norm_interval ik (Interval.of_int ik (f x y)) with Division_by_zero | Invalid_argument _ -> top_of ik)
+    | _, _ -> (set_overflow_flag ~cast:false ~underflow:true ~overflow:true ik; top_of ik)
 
   let bitand ik x y = 
-    let interval_bitand = bit (fun _ik -> Ints_t.bitand) ik in
+    let interval_bitand = bit (Ints_t.bitand) ik in
     binary_op x y interval_bitand
 
   let bitor ik x y = 
-    let interval_bitor = bit (fun _ik -> Ints_t.bitor) ik in
+    let interval_bitor = bit (Ints_t.bitor) ik in
     binary_op x y interval_bitor
 
   let bitxor ik x y = 
-    let interval_bitxor = bit (fun _ik -> Ints_t.bitxor) ik in
+    let interval_bitxor = bit (Ints_t.bitxor) ik in
     binary_op x y interval_bitxor
 
   let bitnot ik x = 
-    let interval_bitnot = bit1 (fun _ik -> Ints_t.bitnot) ik in
+    let interval_bitnot = bit1 (Ints_t.bitnot) ik in
     unary_op x interval_bitnot
 
   let shift_left ik x y = 
-    let interval_shiftleft = bitcomp (fun _ik x y -> Ints_t.shift_left x (Ints_t.to_int y)) ik in
+    let interval_shiftleft = bitcomp (fun x y -> Ints_t.shift_left x (Ints_t.to_int y)) ik in
     binary_op x y interval_shiftleft
 
   let shift_right ik x y = 
-    let interval_shiftright = bitcomp (fun _ik x y -> Ints_t.shift_right x (Ints_t.to_int y)) ik in
+    let interval_shiftright = bitcomp (fun x y -> Ints_t.shift_right x (Ints_t.to_int y)) ik in
     binary_op x y interval_shiftright
 
   let lognot ik x = 
-    let interval_lognot = log1 (fun _ik -> not) ik in
+    let interval_lognot = log1 (not) ik in
     unary_op x interval_lognot
 
   let logand ik x y = 
@@ -1288,24 +1289,28 @@ struct
         let pos x = if Ints_t.compare x Ints_t.zero < 0 then Ints_t.neg x else x in
         let b = Ints_t.sub (Ints_t.max (pos yl) (pos yu)) Ints_t.one in
         let range = if Ints_t.compare xl Ints_t.zero>= 0 then (Ints_t.zero, Ints_t.min xu b) else (Ints_t.max xl (Ints_t.neg b), Ints_t.min (Ints_t.max (pos xl) (pos xu)) b) in
-        meet ik (bit (fun _ik -> Ints_t.rem) ik (x, y)) [range]
+        meet ik (bit (Ints_t.rem) ik (x, y)) [range]
     in
     binary_op x y interval_rem
 
   let cast_to ?torg ?no_ov ik x =
     List.concat_map (fun x -> norm_interval ~cast:true ik (Some x)) x |> canonize
 
-  let narrow ik xs ys = match xs ,ys with 
+  (* 
+    Updates xs' extremities using ys. If xs' extremities are equal to infinity then use ys's extremities.
+    Otherwise, leave them as they are.
+  *)
+  let narrow ik xs ys = match xs, ys with 
     | [], _ -> [] | _ ,[] -> xs
     | _, _ ->
-      let min_xs = fst (List.hd xs) in
-      let max_xs = snd @@ BatList.last xs in
-      let min_ys = fst (List.hd ys) in
-      let max_ys = snd @@ BatList.last ys in
-      let min_range,max_range = range ik in
+      let update_minimal new_min = function (_, y)::z -> (new_min, y)::z | _ -> [] in
+      let update_maximal new_max xs = BatList.modify_at ((BatList.length xs) - 1) (function (x, _) -> (x, new_max)) xs in
+      let (min_xs, max_xs) = (minimal xs |> Option.get, maximal xs |> Option.get) in
+      let (min_ys, max_ys) = (minimal ys |> Option.get, maximal ys |> Option.get) in
+      let min_range, max_range = range ik in
       let min = if Ints_t.compare min_xs min_range == 0 then min_ys else min_xs in
       let max = if Ints_t.compare max_xs max_range == 0 then max_ys else max_xs in
-      xs |> (function (_, y)::z -> (min, y)::z | _ -> []) |> List.rev |> (function (x, _)::z -> (x, max)::z | _ -> []) |> List.rev 
+      xs |> update_minimal min |> update_maximal max
 
   (*
     1. partitions xs' intervals by assigning each of them to the an interval in ys that includes it.
