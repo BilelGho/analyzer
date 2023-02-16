@@ -5,7 +5,7 @@ open FloatOps
 module FloatInterval(Float_t: CFloatType)(Domain_t: FloatDomain.FloatDomainBase) =
 struct
   module FI = Domain_t
-  module IT = IntDomain.IntDomTuple
+  module IT = IntDomTuple
 
   let to_float = Float_t.to_float
   let of_float = Float_t.of_float

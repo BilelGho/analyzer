@@ -5,6 +5,10 @@ open GoblintCil
 val should_wrap: Cil.ikind -> bool
 val should_ignore_overflow: Cil.ikind -> bool
 
+val set_overflow_flag: cast:bool -> underflow:bool -> overflow:bool -> ikind -> unit
+val widening_thresholds: Z.t list ResettableLazy.t
+val widening_thresholds_desc: Z.t list ResettableLazy.t
+
 val reset_lazy: unit -> unit
 
 module type Arith =
@@ -304,6 +308,10 @@ sig
 
 end
 
+val unlift : 'a * bool * bool * bool -> 'a
+
+module SOverFlowLifter (D : S) : SOverFlow with type int_t = D.int_t and type t = D.t
+
 module SOverFlowUnlifter (D : SOverFlow) : S with type int_t = D.int_t and type t = D.t 
 
 module OldDomainFacade (Old : IkindUnawareS with type int_t = int64) : S with type int_t = IntOps.BigIntOps.t and type t = Old.t
@@ -335,9 +343,90 @@ sig
 end
 (** The signature of integral value domains keeping track of ikind information *)
 
-module type Z = Y with type int_t = IntOps.BigIntOps.t
+module type Z = Y with type int_t = IntOps.BigIntOps.t 
 
-module IntDomLifter (I: S): Y with type int_t = I.int_t
+module IntDomLifter (I: S)
+  : sig
+  type int_t = I.int_t
+  type t = { v : I.t; ikind : ikind }
+
+  val ikind: t -> ikind
+
+  val equal : t -> t -> PrecisionUtil.float_precision
+  val compare : t -> t -> int
+  val hash : t -> int
+  val update_v : t -> I.t -> t
+  val get_v : t -> I.t
+  val check_ikinds : t -> t -> unit
+  val lift : (ikind -> I.t -> I.t) -> t -> t
+  val lift_logical : (ikind -> I.t -> I.t) -> t -> t
+  val lift2 : (ikind -> I.t -> I.t -> I.t) -> t -> t -> t
+  val lift2_cmp : (ikind -> I.t -> I.t -> I.t) -> t -> t -> t
+  val bot_of : ikind -> t
+  val bot : unit -> 'a
+  val is_bot : t -> PrecisionUtil.float_precision
+  val top_of : ikind -> t
+  val top : unit -> 'a
+  val is_top : t -> PrecisionUtil.float_precision
+  val leq : t -> t -> PrecisionUtil.float_precision
+  val join : t -> t -> t
+  val meet : t -> t -> t
+  val widen : t -> t -> t
+  val narrow : t -> t -> t
+  val show : t -> string
+  val pretty : unit -> t -> Pretty.doc
+  val pretty_diff : unit -> t * t -> Pretty.doc
+  val printXml : 'a BatInnerIO.output -> t -> unit
+  val name : unit -> string
+  val to_yojson : t -> Yojson.Safe.t
+  val invariant : exp -> t -> Invariant.t
+  val tag : t -> int
+  val arbitrary : 'a -> 'b
+  val to_int : t -> I.int_t option
+  val of_int : ikind -> I.int_t -> t
+  val equal_to : I.int_t -> t -> [ `Eq | `Neq | `Top ]
+  val to_bool : t -> PrecisionUtil.float_precision option
+  val of_bool : ikind -> PrecisionUtil.float_precision -> t
+
+  val to_excl_list :
+    t -> (I.int_t list * (int64 * int64)) option
+
+  val of_excl_list : ikind -> I.int_t list -> t
+  val is_excl_list : t -> PrecisionUtil.float_precision
+  val to_incl_list : t -> I.int_t list option
+  val of_interval : ?suppress_ovwarn:bool -> ikind -> I.int_t * I.int_t -> t
+  val of_congruence : ikind -> I.int_t * I.int_t -> t
+  val starting : ?suppress_ovwarn:bool -> ikind -> I.int_t -> t
+  val ending : ?suppress_ovwarn:bool -> ikind -> I.int_t -> t
+  val maximal : t -> I.int_t option
+  val minimal : t -> I.int_t option
+  val neg : t -> t
+  val add : t -> t -> t
+  val sub : t -> t -> t
+  val mul : t -> t -> t
+  val div : t -> t -> t
+  val rem : t -> t -> t
+  val lt : t -> t -> t
+  val gt : t -> t -> t
+  val le : t -> t -> t
+  val ge : t -> t -> t
+  val eq : t -> t -> t
+  val ne : t -> t -> t
+  val bitnot : t -> t
+  val bitand : t -> t -> t
+  val bitor : t -> t -> t
+  val bitxor : t -> t -> t
+  val shift_left : t -> t -> t
+  val shift_right : t -> t -> t
+  val lognot : t -> t
+  val logand : t -> t -> t
+  val logor : t -> t -> t
+  val cast_to : ?torg:'a -> ikind -> t -> t
+  val is_top_of : ikind -> t -> PrecisionUtil.float_precision
+  val relift : t -> t
+  val project : PrecisionUtil.int_precision -> t -> t
+end
+
 
 module type Ikind =
 sig
@@ -348,24 +437,15 @@ module PtrDiffIkind : Ikind
 
 module IntDomWithDefaultIkind (I: Y) (Ik: Ikind) : Y with type t = I.t and type int_t = I.int_t
 
-(* module ManyInts : S *)
-(* module IntDomList : S *)
-module IntDomTuple : sig
-  include Z
-  val no_interval: t -> t
-  val no_intervalSet: t -> t
-  val ikind: t -> ikind
-end
-
-val of_const: Z.t * Cil.ikind * string option -> IntDomTuple.t
-
-
 module Size : sig
   (** The biggest type we support for integers. *)
   val top_typ         : Cil.typ
   val range           : Cil.ikind -> Z.t * Z.t
   val is_cast_injective : from_type:Cil.typ -> to_type:Cil.typ -> bool
   val bits            : Cil.ikind -> int * int
+  val cast            : Cil.ikind -> Z.t -> Z.t
+  val min_from_bit_range : int64 -> Z.t
+  val max_from_bit_range : int64 -> Z.t
 end
 
 module BISet: SetDomain.S with type elt = Z.t
@@ -403,9 +483,47 @@ module FlattenedBI : IkindUnawareS with type t = [`Top | `Lifted of IntOps.BigIn
 module Lifted : IkindUnawareS with type t = [`Top | `Lifted of int64 | `Bot] and type int_t = int64
 (** Artificially bounded integers in their natural ordering. *)
 
-module IntervalFunctor(Ints_t : IntOps.IntOps): SOverFlow with type int_t = Ints_t.t and type t = (Ints_t.t * Ints_t.t) option
+module Std 
+  (B : sig
+     type t
 
-module IntervalSetFunctor(Ints_t : IntOps.IntOps): SOverFlow with type int_t = Ints_t.t and type t = (Ints_t.t * Ints_t.t) list
+     val name : unit -> string
+     val top_of : ikind -> t
+     val bot_of : ikind -> t
+     val show : t -> string
+     val equal : t -> t -> PrecisionUtil.float_precision
+   end)
+  : sig
+  type group = Invariant.group = |
+  val show_group : group -> 'a
+  val to_group : 'a -> 'b option
+  val trace_enabled : PrecisionUtil.float_precision
+  val tag : 'a -> 'b
+  val arbitrary : unit -> 'a
+  val relift : 'a -> 'a
+  val name : unit -> string
+  val is_top : 'a -> 'b
+  val is_bot : B.t -> PrecisionUtil.float_precision
+  val is_top_of : ikind -> B.t -> PrecisionUtil.float_precision
+  val pretty : unit -> B.t -> Pretty.doc
+  val to_yojson : B.t -> [> `String of string ]
+  val printXml : 'a BatInnerIO.output -> B.t -> unit
+  val pretty_diff : unit -> B.t * B.t -> Pretty.doc
+  val to_excl_list : 'a -> 'b option
+  val of_excl_list : ikind -> 'a -> B.t
+  val is_excl_list : 'a -> PrecisionUtil.float_precision
+  val to_incl_list : 'a -> 'b option
+  val of_interval : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
+  val of_congruence : ikind -> 'a -> B.t
+  val starting : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
+  val ending : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
+  val maximal : 'a -> 'b option
+  val minimal : 'a -> 'b option
+end
+
+
+
+module IntervalFunctor(Ints_t : IntOps.IntOps): SOverFlow with type int_t = Ints_t.t and type t = (Ints_t.t * Ints_t.t) option
 
 module Interval32 :Y with (* type t = (IntOps.Int64Ops.t * IntOps.Int64Ops.t) option and *) type int_t = IntOps.Int64Ops.t
 
@@ -417,9 +535,7 @@ module BigInt:
 
 module Interval : SOverFlow with type int_t = IntOps.BigIntOps.t
 
-module IntervalSet : SOverFlow with type int_t = IntOps.BigIntOps.t
-
-module Congruence : S with type int_t = IntOps.BigIntOps.t
+module Congruence : S with type int_t = IntOps.BigIntOps.t and type t = (IntOps.BigIntOps.t * IntOps.BigIntOps.t) option
 
 module DefExc : S with type int_t = IntOps.BigIntOps.t
 (** The DefExc domain. The Flattened integer domain is topped by exclusion sets.
