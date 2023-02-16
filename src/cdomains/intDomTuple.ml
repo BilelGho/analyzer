@@ -1,3 +1,4 @@
+open GobConfig
 open GoblintCil
 open Pretty
 open PrecisionUtil
@@ -14,10 +15,10 @@ module IntDomTupleImpl = struct
 
   type int_t = BI.t
   
-  module I1 = SOverFlowLifter(IntDomain.DefExc)
+  module I1 = IntDomain.SOverFlowLifter(IntDomain.DefExc)
   module I2 = IntDomain.IntervalFunctor (BI)
-  module I3 = SOverFlowLifter(IntDomain.Enums)
-  module I4 = SOverFlowLifter(IntDomain.Congruence)
+  module I3 = IntDomain.SOverFlowLifter(IntDomain.Enums)
+  module I4 = IntDomain.SOverFlowLifter(IntDomain.Congruence)
   module I5 = IntIntervalSetDomain.IntervalSetFunctor (BI)
 
 
@@ -72,9 +73,9 @@ module IntDomTupleImpl = struct
       let underflow = underflow_intv && underflow_intv_set in
       let overflow = overflow_intv && overflow_intv_set in
       let cast = cast_intv || cast_intv_set in
-      set_overflow_flag ~cast ~underflow ~overflow ik; 
+      IntDomain.set_overflow_flag ~cast ~underflow ~overflow ik; 
     );
-    map unlift @@ f p1 @@ r.fi2_ovc (module I1), map unlift @@ f p2 @@ r.fi2_ovc (module I2), map unlift @@ f p3 @@ r.fi2_ovc (module I3), map unlift @@ f p4 @@ r.fi2_ovc (module I4), map unlift @@ f p5 @@ r.fi2_ovc (module I5)
+    map IntDomain.unlift @@ f p1 @@ r.fi2_ovc (module I1), map IntDomain.unlift @@ f p2 @@ r.fi2_ovc (module I2), map IntDomain.unlift @@ f p3 @@ r.fi2_ovc (module I3), map IntDomain.unlift @@ f p4 @@ r.fi2_ovc (module I4), map IntDomain.unlift @@ f p5 @@ r.fi2_ovc (module I5)
 
   let create2_ovc ik r x = (* use where values are introduced *)
     create2_ovc ik r x (int_precision_from_node_or_config ())
@@ -262,15 +263,15 @@ module IntDomTupleImpl = struct
       let underflow = underflow_intv && underflow_intv_set in
       let overflow = overflow_intv && overflow_intv_set in
       let cast = cast_intv || cast_intv_set in
-      set_overflow_flag ~cast ~underflow ~overflow ik; 
+      IntDomain.set_overflow_flag ~cast ~underflow ~overflow ik; 
     );
-    let no_ov = no_ov || should_ignore_overflow ik in
+    let no_ov = no_ov || IntDomain.should_ignore_overflow ik in
     refine ik
-      ( map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I1) x |> unlift) a
-      , BatOption.map unlift intv
-      , map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I3) x |> unlift) c
-      , map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I4) x |> unlift) ~no_ov d
-      , BatOption.map unlift intv_set )
+      ( map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I1) x |> IntDomain.unlift) a
+      , BatOption.map IntDomain.unlift intv
+      , map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I3) x |> IntDomain.unlift) c
+      , map (fun ?no_ov x -> r.f1_ovc ?no_ov (module I4) x |> IntDomain.unlift) ~no_ov d
+      , BatOption.map IntDomain.unlift intv_set )
 
   (* map2 with overflow check *)
   let map2ovc ik r (xa, xb, xc, xd, xe) (ya, yb, yc, yd, ye) =
@@ -283,15 +284,15 @@ module IntDomTupleImpl = struct
       let underflow = underflow_intv && underflow_intv_set in
       let overflow = overflow_intv && overflow_intv_set in
       let cast = cast_intv || cast_intv_set in
-      set_overflow_flag ~cast ~underflow ~overflow ik; 
+      IntDomain.set_overflow_flag ~cast ~underflow ~overflow ik; 
     );
-    let no_ov = no_ov || should_ignore_overflow ik in
+    let no_ov = no_ov || IntDomain.should_ignore_overflow ik in
     refine ik
-      ( opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I1) x y |> unlift) xa ya
-      , BatOption.map unlift intv
-      , opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I3) x y |> unlift) xc yc
-      , opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I4) x y |> unlift) ~no_ov:no_ov xd yd
-      , BatOption.map unlift intv_set )
+      ( opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I1) x y |> IntDomain.unlift) xa ya
+      , BatOption.map IntDomain.unlift intv
+      , opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I3) x y |> IntDomain.unlift) xc yc
+      , opt_map2 (fun ?no_ov x y -> r.f2_ovc ?no_ov (module I4) x y |> IntDomain.unlift) ~no_ov:no_ov xd yd
+      , BatOption.map IntDomain.unlift intv_set )
 
   let map ik r (a, b, c, d, e) =
     refine ik

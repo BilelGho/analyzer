@@ -57,7 +57,7 @@ module type FloatArith = sig
   (** Equal to: [x == y] *)
   val ne : t -> t -> IntDomTuple.t
   (** Not equal to: [x != y] *)
-  val unordered: t -> t -> IntDomain.IntDomTuple.t
+  val unordered: t -> t -> IntDomTuple.t
   (** Unordered *)
 
   (** {unary functions returning int} *)
@@ -556,7 +556,7 @@ module FloatIntervalImpl(Float_t : CFloatType) = struct
       | MinusInfinity, MinusInfinity -> (1,1)
       | _ -> (0, 0)
     in
-    IntDomain.IntDomTuple.of_interval IBool
+    IntDomTuple.of_interval IBool
       (Z.of_int l, Z.of_int u)
 
   let ne a b =
@@ -576,7 +576,7 @@ module FloatIntervalImpl(Float_t : CFloatType) = struct
       | MinusInfinity, MinusInfinity -> (0,0)
       | _ -> (1, 1)
     in
-    IntDomain.IntDomTuple.of_interval IBool
+    IntDomTuple.of_interval IBool
       (Z.of_int l, Z.of_int u)
 
   let unordered op1 op2 =

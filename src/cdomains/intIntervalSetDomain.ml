@@ -1,3 +1,4 @@
+open GobConfig
 open GoblintCil
 
 module GU = Goblintutil
@@ -156,10 +157,9 @@ struct
     end
 
 
-
   let norm_intvs ?(suppress_ovwarn=false) ?(cast=false) (ik:ikind) (xs: t) : t*bool*bool*bool = 
     let res = List.map (norm_interval ~suppress_ovwarn ~cast ik) xs in
-    let intvs = List.concat_map unlift res in
+    let intvs = List.concat_map IntDomain.unlift res in
     let underflow = List.exists (fun (_,underflow,_,_) -> underflow) res in
     let overflow = List.exists (fun (_,_,overflow,_) -> overflow) res
     in (intvs,underflow,overflow,cast)
@@ -175,7 +175,7 @@ struct
     | _, [] -> ([],false,false,false)
     | _, _ ->
       let res = List.map op (BatList.cartesian_product x y) in
-      let intvs = List.concat_map unlift res in
+      let intvs = List.concat_map IntDomain.unlift res in
       let underflow = List.exists (fun (_,underflow,_,_) -> underflow) res in
       let overflow = List.exists (fun (_,_,overflow,_) -> overflow) res
       in (canonize intvs, underflow,overflow,false)
@@ -276,7 +276,7 @@ struct
 
   let bit f ik (i1, i2) =
     match (interval_to_int i1), (interval_to_int i2) with
-    | Some x, Some y -> (try of_int ik (f x y) |> unlift with Division_by_zero -> top_of ik)
+    | Some x, Some y -> (try of_int ik (f x y) |> IntDomain.unlift with Division_by_zero -> top_of ik)
     | _ -> top_of ik
 
 
@@ -300,7 +300,7 @@ struct
   let bitnot ik x = 
     let bit1 f ik i1 =
       match interval_to_int i1 with
-      | Some x -> of_int ik (f x) |> unlift
+      | Some x -> of_int ik (f x) |> IntDomain.unlift
       | _ -> top_of ik
     in
     let interval_bitnot = bit1 Ints_t.bitnot ik in
@@ -360,7 +360,7 @@ struct
       | l, u when is_zero l && is_zero u -> top_of ik (* TODO warn about undefined behavior *)
       | l, _ when is_zero l              -> interval_div ((x1,x2), (Ints_t.one,y2))
       | _, u when is_zero u              -> interval_div ((x1,x2), (y1, Ints_t.(neg one)))
-      | _ when leq (of_int ik (Ints_t.zero) |> unlift) ([(y1,y2)]) -> top_of ik
+      | _ when leq (of_int ik (Ints_t.zero) |> IntDomain.unlift) ([(y1,y2)]) -> top_of ik
       | _ ->
         let x1y1n = (Ints_t.div x1 y1) in 
         let x1y2n = (Ints_t.div x1 y2) in
@@ -421,13 +421,13 @@ struct
     let (min_ik,max_ik) = range ik in 
     let threshold = get_bool "ana.int.interval_threshold_widening" in
     let upper_threshold (_,u) =
-      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force widening_thresholds in
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.upper_thresholds () else ResettableLazy.force IntDomain.widening_thresholds in
       let u = Ints_t.to_bigint u in
       let t = List.find_opt (fun x -> Z.compare u x <= 0) ts in
       BatOption.map_default Ints_t.of_bigint max_ik t
     in
     let lower_threshold (l,_) =
-      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force widening_thresholds_desc in
+      let ts = if GobConfig.get_string "ana.int.interval_threshold_widening_constants" = "comparisons" then WideningThresholds.lower_thresholds () else ResettableLazy.force IntDomain.widening_thresholds_desc in
       let l = Ints_t.to_bigint l in
       let t = List.find_opt (fun x -> Z.compare l x >= 0) ts in
       BatOption.map_default Ints_t.of_bigint min_ik t
@@ -508,8 +508,8 @@ struct
             if Ints_t.equal y max_ik then y else
               Ints_t.sub y (modulo (Ints_t.sub y c) (Ints_t.abs m)) in
           if Ints_t.compare rcx lcy > 0 then []
-          else if Ints_t.equal rcx lcy then norm_interval ik (rcx, rcx) |> unlift
-          else norm_interval ik (rcx, lcy) |> unlift
+          else if Ints_t.equal rcx lcy then norm_interval ik (rcx, rcx) |> IntDomain.unlift
+          else norm_interval ik (rcx, lcy) |> IntDomain.unlift
       | _ -> []
     in
     List.map (fun x -> Some x) intvs |> List.map (refine_with_congruence_interval ik cong) |> List.flatten
@@ -523,7 +523,7 @@ struct
   let excl_range_to_intervalset (ik: ikind) ((min, max): int_t * int_t) (excl: int_t): t = 
     let intv1 = (min, Ints_t.sub excl Ints_t.one) in
     let intv2 = (Ints_t.add excl Ints_t.one, max) in
-    norm_intvs ik ~suppress_ovwarn:true [intv1 ; intv2] |> unlift |> canonize
+    norm_intvs ik ~suppress_ovwarn:true [intv1 ; intv2] |> IntDomain.unlift |> canonize
 
   let of_excl_list ik (excls: int_t list) = 
     let excl_list = List.map (excl_range_to_intervalset ik (range ik)) excls in
@@ -534,7 +534,7 @@ struct
     | None -> intv
     | Some (xs, range) -> 
       let excl_to_intervalset (ik: ikind) ((rl, rh): (int64 * int64)) (excl: int_t): t = 
-        excl_range_to_intervalset ik (Ints_t.of_bigint (Size.min_from_bit_range rl),Ints_t.of_bigint (Size.max_from_bit_range rh)) excl
+        excl_range_to_intervalset ik (Ints_t.of_bigint (IntDomain.Size.min_from_bit_range rl),Ints_t.of_bigint (IntDomain.Size.max_from_bit_range rh)) excl
       in
       let excl_list = List.map (excl_to_intervalset ik range) xs in 
       List.fold_left (meet ik) intv excl_list
@@ -548,7 +548,7 @@ struct
     let int_arb = QCheck.map ~rev:Ints_t.to_int64 Ints_t.of_int64 MyCheck.Arbitrary.int64 in
     let pair_arb = QCheck.pair int_arb int_arb in
     let list_pair_arb = QCheck.small_list pair_arb in
-    let canonize_randomly_generated_list = (fun x -> norm_intvs ik  x |> unlift |> canonize) in
+    let canonize_randomly_generated_list = (fun x -> norm_intvs ik  x |> IntDomain.unlift |> canonize) in
     let shrink xs = MyCheck.shrink list_pair_arb xs >|= canonize_randomly_generated_list
     in QCheck.(set_shrink shrink @@ set_print show @@ map (*~rev:BatOption.get*) canonize_randomly_generated_list list_pair_arb)
 

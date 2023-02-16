@@ -965,10 +965,40 @@ struct
   let project ik p t = t
 end
 
+module SOverFlowUnlifter (D : SOverFlow) : S with type int_t = D.int_t and type t = D.t = struct
+
+  include D
+
+  let unlift (v,_,_,_) = v
+
+  let add ?no_ov ik x y = unlift @@ D.add ?no_ov ik x y
+
+  let sub ?no_ov ik x y = unlift @@ D.sub ?no_ov ik x y
+
+  let mul ?no_ov ik x y = unlift @@ D.mul ?no_ov ik x y
+
+  let div ?no_ov ik x y = unlift @@ D.div ?no_ov ik x y
+
+  let neg ?no_ov ik x = unlift @@ D.neg ?no_ov ik x
+
+  let cast_to ?torg ?no_ov ik x = unlift @@ D.cast_to ?torg ?no_ov ik x
+
+  let of_int ik x = unlift @@ D.of_int ik x
+
+  let of_interval ?suppress_ovwarn ik x = unlift @@ D.of_interval ?suppress_ovwarn ik x
+
+  let starting ?suppress_ovwarn ik x = unlift @@ D.starting ?suppress_ovwarn ik x
+
+  let ending ?suppress_ovwarn ik x = unlift @@ D.ending ?suppress_ovwarn ik x
+
+  let shift_left ik x y = unlift @@ D.shift_left ik x y
+
+  let shift_right ik x y = unlift @@ D.shift_right ik x y
+
+end
 module IntIkind = struct let ikind () = Cil.IInt end
 module Interval =  IntervalFunctor (BI)
 module Interval32 = IntDomWithDefaultIkind (IntDomLifter ( SOverFlowUnlifter (IntervalFunctor (IntOps.Int64Ops)) ) ) (IntIkind)
-module IntervalSet = IntervalSetFunctor(BI)
 module Integers(Ints_t : IntOps.IntOps): IkindUnawareS with type t = Ints_t.t and type int_t = Ints_t.t = (* no top/bot, order is <= *)
 struct
   include Printable.Std
@@ -2625,37 +2655,6 @@ struct
   let project ik p t = t
 end
 
-
-
-  include D
-
-  let lift v = (v, false,false,false)
-
-  let add ?no_ov ik x y = lift @@ D.add ?no_ov ik x y
-
-  let sub ?no_ov ik x y = lift @@ D.sub ?no_ov ik x y
-
-  let mul ?no_ov ik x y = lift @@ D.mul ?no_ov ik x y
-
-  let div ?no_ov ik x y = lift @@ D.div ?no_ov ik x y
-
-  let neg ?no_ov ik x = lift @@ D.neg ?no_ov ik x
-
-  let cast_to ?torg ?no_ov ik x = lift @@ D.cast_to ?torg ?no_ov ik x
-
-  let of_int ik x = lift @@ D.of_int ik x
-
-  let of_interval ?suppress_ovwarn ik x = lift @@ D.of_interval ?suppress_ovwarn ik x
-
-  let starting ?suppress_ovwarn ik x = lift @@ D.starting ?suppress_ovwarn ik x
-
-  let ending ?suppress_ovwarn ik x = lift @@ D.ending ?suppress_ovwarn ik x
-
-  let shift_left ik x y = lift @@ D.shift_left ik x y
-
-  let shift_right ik x y = lift @@ D.shift_right ik x y
-
-end
 
 
 module SOverFlowLifter (D : S) : SOverFlow with type int_t = D.int_t and type t = D.t = struct

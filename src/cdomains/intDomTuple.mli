@@ -3,7 +3,7 @@ open GoblintCil
 (* module ManyInts : S *)
 (* module IntDomList : S *)
 module IntDomTuple : sig
-  include Z
+  include IntDomain.Z
   val no_interval: t -> t
   val no_intervalSet: t -> t
   val ikind: t -> ikind

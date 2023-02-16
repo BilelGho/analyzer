@@ -5,6 +5,10 @@ open GoblintCil
 val should_wrap: Cil.ikind -> bool
 val should_ignore_overflow: Cil.ikind -> bool
 
+val set_overflow_flag: cast:bool -> underflow:bool -> overflow:bool -> ikind -> unit
+val widening_thresholds: Z.t list ResettableLazy.t
+val widening_thresholds_desc: Z.t list ResettableLazy.t
+
 val reset_lazy: unit -> unit
 
 module type Arith =
@@ -304,6 +308,10 @@ sig
 
 end
 
+val unlift : 'a * bool * bool * bool -> 'a
+
+module SOverFlowLifter (D : S) : SOverFlow with type int_t = D.int_t and type t = D.t
+
 module SOverFlowUnlifter (D : SOverFlow) : S with type int_t = D.int_t and type t = D.t 
 
 module OldDomainFacade (Old : IkindUnawareS with type int_t = int64) : S with type int_t = IntOps.BigIntOps.t and type t = Old.t
@@ -341,6 +349,8 @@ module IntDomLifter (I: S)
   : sig
   type int_t = I.int_t
   type t = { v : I.t; ikind : ikind }
+
+  val ikind: t -> ikind
 
   val equal : t -> t -> PrecisionUtil.float_precision
   val compare : t -> t -> int
@@ -384,10 +394,10 @@ module IntDomLifter (I: S)
   val of_excl_list : ikind -> I.int_t list -> t
   val is_excl_list : t -> PrecisionUtil.float_precision
   val to_incl_list : t -> I.int_t list option
-  val of_interval : ikind -> I.int_t * I.int_t -> t
+  val of_interval : ?suppress_ovwarn:bool -> ikind -> I.int_t * I.int_t -> t
   val of_congruence : ikind -> I.int_t * I.int_t -> t
-  val starting : ikind -> I.int_t -> t
-  val ending : ikind -> I.int_t -> t
+  val starting : ?suppress_ovwarn:bool -> ikind -> I.int_t -> t
+  val ending : ?suppress_ovwarn:bool -> ikind -> I.int_t -> t
   val maximal : t -> I.int_t option
   val minimal : t -> I.int_t option
   val neg : t -> t
@@ -503,10 +513,10 @@ module Std
   val of_excl_list : ikind -> 'a -> B.t
   val is_excl_list : 'a -> PrecisionUtil.float_precision
   val to_incl_list : 'a -> 'b option
-  val of_interval : ikind -> 'a -> B.t
+  val of_interval : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
   val of_congruence : ikind -> 'a -> B.t
-  val starting : ikind -> 'a -> B.t
-  val ending : ikind -> 'a -> B.t
+  val starting : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
+  val ending : ?suppress_ovwarn:bool -> ikind -> 'a -> B.t
   val maximal : 'a -> 'b option
   val minimal : 'a -> 'b option
 end
@@ -524,8 +534,6 @@ module BigInt:
   end
 
 module Interval : SOverFlow with type int_t = IntOps.BigIntOps.t
-
-module IntervalSet : SOverFlow with type int_t = IntOps.BigIntOps.t
 
 module Congruence : S with type int_t = IntOps.BigIntOps.t and type t = (IntOps.BigIntOps.t * IntOps.BigIntOps.t) option
 
